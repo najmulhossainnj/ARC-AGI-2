@@ -49,6 +49,7 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                 if resp and resp.text:
                     return resp.text
             except Exception as e:
+                print(f"[LLM] legacy endpoint {model_name} error: {e}")
                 pass
     except Exception as e:
         print(f"[LLM] Gemini API error: {e}")
@@ -101,7 +102,7 @@ def _verify_solve_fn(
             if pred.shape != out.shape or not np.array_equal(pred, out):
                 return False
         except Exception as e:
-            print(f"[LLM] solve_fn raised: {e}")
+            # Silence expected test evaluation errors (shape mismatch, index errors during search)
             return False
     return True
 
