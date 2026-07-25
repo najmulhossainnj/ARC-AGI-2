@@ -62,19 +62,6 @@ def download_arc_dataset(chal_path, sol_path):
                 f.write(r2.content)
             print("Dataset downloaded successfully!")
             return True
-        else:
-            # Fallback to alternate raw url layout
-            ch_url2 = "https://raw.githubusercontent.com/arcprize/ARC-AGI/main/data/arc-agi_training_challenges.json"
-            sol_url2 = "https://raw.githubusercontent.com/arcprize/ARC-AGI/main/data/arc-agi_training_solutions.json"
-            r1 = requests.get(ch_url2, timeout=30)
-            r2 = requests.get(sol_url2, timeout=30)
-            if r1.status_code == 200 and r2.status_code == 200:
-                with open(chal_path, "wb") as f:
-                    f.write(r1.content)
-                with open(sol_path, "wb") as f:
-                    f.write(r2.content)
-                print("Dataset downloaded from arcprize successfully!")
-                return True
     except Exception as e:
         print(f"Dataset download notice: {e}")
     return False
@@ -133,7 +120,7 @@ while True:
                 import numpy as np
                 if np.array_equal(np.array(attempt), np.array(truth[0])):
                     solved = True
-                    prog_str = programs[0].program if hasattr(programs[0], 'program') else str(programs[0])
+                    prog_str = str(programs[0])
                     break
 
         source = "original" if solved else "none"
@@ -148,18 +135,18 @@ while True:
                 if diagnosis.source == "llm" and diagnosis.solve_fn:
                     new_primitive_code = getattr(diagnosis.solve_fn, "_llm_code", None)
                     op_name = inject_llm_solve(tid, diagnosis.solve_fn)
-                    prog_str = op_name
+                    prog_str = str(op_name)
                 elif diagnosis.candidate:
                     prog_str = str(diagnosis.candidate)
 
-        # Step 3: Report results to coordinator
+        # Step 3: Report results to coordinator (Ensure all report fields are str/bool JSON serializable)
         report = {
-            "worker_id": WORKER_ID,
-            "task_id": tid,
-            "solved": solved,
-            "source": source,
-            "program_str": prog_str,
-            "new_primitive_code": new_primitive_code
+            "worker_id": str(WORKER_ID),
+            "task_id": str(tid),
+            "solved": bool(solved),
+            "source": str(source),
+            "program_str": str(prog_str),
+            "new_primitive_code": str(new_primitive_code) if new_primitive_code else None
         }
         requests.post(f"{COORDINATOR_URL}/api/submit_result", json=report, headers=headers, timeout=10)
         print(f"[{WORKER_ID}] Task {tid} finished. Solved: {solved} ({source})")
