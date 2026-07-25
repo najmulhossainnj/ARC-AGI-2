@@ -1,5 +1,4 @@
-# Google Colab Worker Script for ARC Meta-Learning
-# Run this notebook/script inside any Google Colab GPU/CPU instance!
+# Google Colab / Local Worker Script for ARC Meta-Learning
 
 import os
 import sys
@@ -10,9 +9,9 @@ from pathlib import Path
 
 # Master Coordinator Settings & Public Tunnel URL
 COORDINATOR_URL = os.environ.get("ARC_COORDINATOR_URL", "https://smooth-bears-wave.loca.lt")
-WORKER_ID = os.environ.get("ARC_WORKER_ID", f"colab_worker_{os.getpid()}_{int(time.time())}")
+WORKER_ID = os.environ.get("ARC_WORKER_ID", f"local_worker_{os.getpid()}_{int(time.time())}")
 
-print(f"=== Starting Google Colab Worker: {WORKER_ID} ===")
+print(f"=== Starting ARC Worker: {WORKER_ID} ===")
 print(f"Connecting to Coordinator at: {COORDINATOR_URL}")
 
 # Walk up and down to find the directory containing 'arc_solver'
@@ -34,16 +33,11 @@ if solver_parent:
     print(f"Adding arc_solver parent directory to sys.path: {solver_parent}")
     sys.path.insert(0, str(solver_parent))
 
-# Fallback: search recursively in working directory
-for root, dirs, files in os.walk(os.getcwd()):
-    if "arc_solver" in dirs:
-        print(f"Found arc_solver in: {root}")
-        sys.path.insert(0, root)
-        break
+# Setup data directory paths - check local working directory first
+DATA_DIR = Path.cwd() / "data" / "arc-prize-2026-arc-agi-2"
+if not (DATA_DIR / "arc-agi_training_challenges.json").exists() and solver_parent:
+    DATA_DIR = solver_parent / "data" / "arc-prize-2026-arc-agi-2"
 
-# Setup data directory paths
-repo_root = solver_parent or Path.cwd()
-DATA_DIR = repo_root / "data" / "arc-prize-2026-arc-agi-2"
 os.makedirs(DATA_DIR, exist_ok=True)
 CHALLENGES_PATH = str(DATA_DIR / "arc-agi_training_challenges.json")
 SOLUTIONS_PATH = str(DATA_DIR / "arc-agi_training_solutions.json")
@@ -139,7 +133,7 @@ while True:
                 elif diagnosis.candidate:
                     prog_str = str(diagnosis.candidate)
 
-        # Step 3: Report results to coordinator (Ensure all report fields are str/bool JSON serializable)
+        # Step 3: Report results to coordinator
         report = {
             "worker_id": str(WORKER_ID),
             "task_id": str(tid),
