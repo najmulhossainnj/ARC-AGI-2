@@ -139,14 +139,13 @@ def _add_to_grammar(op: str, fn_name: str):
         f'"diagonal_stack_chain","{fn_name}",\n}}',
         1,
     )
-    new_block = textwrap.dedent(f"""
-    if "{fn_name}" in families:
-        out.append(Program((Instruction("{op}"),)))
-""")
-    # Replace last return out with new block + return out
+    new_block = (
+        f'    if "{fn_name}" in families:\n'
+        f'        out.append(Program((Instruction("{op}"),)))\n\n'
+    )
     idx = text.rfind("    return out")
     if idx != -1:
-        text = text[:idx] + new_block + "\n    return out\n"
+        text = text[:idx] + new_block + "    return out\n"
     _GRAMMAR_PATH.write_text(text, encoding="utf-8")
 
 
