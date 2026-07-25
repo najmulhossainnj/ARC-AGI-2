@@ -4,9 +4,6 @@ auto_primitive_injector.py
 --------------------------
 Given a verified LLM-generated solve() function, injects it into the DSL
 so the solver can use it immediately (both on disk and in the live module cache).
-
-For rule-based ProgramCandidates the DSL already knows the op, so no injection
-is needed – the solver will re-run and find the program.
 """
 import re
 import importlib
@@ -20,7 +17,6 @@ _THIS_FILE = Path(__file__).resolve()
 _META_DIR = _THIS_FILE.parent
 _ARC_SOLVER_ROOT = _META_DIR.parent
 
-# Try to find dsl directory recursively or dynamically
 _DSL_ROOT = _ARC_SOLVER_ROOT / "dsl"
 if not _DSL_ROOT.exists():
     for sys_p in sys.path:
@@ -105,6 +101,8 @@ def inject_llm_solve(task_id: str, solve_fn: Callable) -> str:
 
 def _append_to_grid_ops(op: str, arity: int = 0):
     text = _PRIMITIVES_PATH.read_text(encoding="utf-8")
+    if f'"{op}"' in text:
+        return
     insert = f'    "{op}": {arity},\n'
     text = text.replace('    "FRACTAL_TILE": 1,', insert + '    "FRACTAL_TILE": 1,', 1)
     _PRIMITIVES_PATH.write_text(text, encoding="utf-8")
@@ -112,6 +110,8 @@ def _append_to_grid_ops(op: str, arity: int = 0):
 
 def _add_to_valid_ops(op: str):
     text = _TYPE_CHECKER_PATH.read_text(encoding="utf-8")
+    if f'"{op}"' in text:
+        return
     text = re.sub(
         r'("SHIFT_PARALLELOGRAM","DIAGONAL_STACK_CHAIN",)',
         rf'\1"{op}",',
@@ -123,6 +123,8 @@ def _add_to_valid_ops(op: str):
 
 def _add_dispatch(op: str, fn_name: str):
     text = _TRANSFORMS_DISPATCH_PATH.read_text(encoding="utf-8")
+    if f'"{op}"' in text:
+        return
     new_line = f'    if op=="{op}": return adv.{fn_name}(g,*args)\n'
     text = text.replace("    raise ValueError(op)", new_line + "    raise ValueError(op)", 1)
     _TRANSFORMS_DISPATCH_PATH.write_text(text, encoding="utf-8")
@@ -130,6 +132,8 @@ def _add_dispatch(op: str, fn_name: str):
 
 def _add_to_grammar(op: str, fn_name: str):
     text = _GRAMMAR_PATH.read_text(encoding="utf-8")
+    if f'"{fn_name}"' in text:
+        return
     text = text.replace(
         '"diagonal_stack_chain",\n}',
         f'"diagonal_stack_chain","{fn_name}",\n}}',
@@ -139,7 +143,10 @@ def _add_to_grammar(op: str, fn_name: str):
     if "{fn_name}" in families:
         out.append(Program((Instruction("{op}"),)))
 """)
-    text = text.replace("    return out\n", new_block + "    return out\n", 1)
+    # Replace last return out with new block + return out
+    idx = text.rfind("    return out")
+    if idx != -1:
+        text = text[:idx] + new_block + "\n    return out\n"
     _GRAMMAR_PATH.write_text(text, encoding="utf-8")
 
 
