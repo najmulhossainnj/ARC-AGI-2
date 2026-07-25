@@ -153,11 +153,14 @@ def init_tasks():
     data = request.json or {}
     task_ids = data.get("task_ids", [])
     with lock:
-        tasks_queue = list(task_ids)
+        if task_ids:
+            tasks_queue = list(task_ids)
+        else:
+            load_initial_tasks()
         assigned_tasks.clear()
         results.clear()
         workers.clear()
-    return jsonify({"status": "ok", "count": len(task_ids)})
+    return jsonify({"status": "ok", "count": len(tasks_queue)})
 
 @app.route("/api/get_task", methods=["POST"])
 def get_task():
@@ -177,13 +180,12 @@ def get_task():
                 del assigned_tasks[tid]
                 tasks_queue.append(tid)
 
-        # If queue is empty, recycle unsolved tasks for infinite looping
+        # If queue is empty, recycle all unsolved tasks or re-initialize full dataset
         if not tasks_queue:
             unsolved_ids = [tid for tid, res in results.items() if not res.get("solved")]
             if unsolved_ids:
                 print(f"[Coordinator] Queue empty! Re-queueing {len(unsolved_ids)} unsolved tasks for next pass...")
                 tasks_queue.extend(unsolved_ids)
-                # Clear evaluated results for unsolved tasks so pending count shows correctly
                 for tid in unsolved_ids:
                     del results[tid]
             else:
@@ -270,10 +272,11 @@ def status():
         ]
 
         active_count = sum(1 for w in active_workers.values() if w["is_active"])
+        total_dataset_count = len(tasks_queue) + len(assigned_tasks) + len(results)
 
         return jsonify({
-            "total_dataset_tasks": 1000,
-            "total_tasks": len(tasks_queue) + len(assigned_tasks) + len(results),
+            "total_dataset_tasks": max(total_dataset_count, 1000),
+            "total_tasks": total_dataset_count,
             "pending": len(tasks_queue),
             "in_progress": len(assigned_tasks),
             "completed": len(results),
