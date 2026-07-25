@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import requests
+from pathlib import Path
 
 # Master Coordinator Settings & Public Tunnel URL
 COORDINATOR_URL = os.environ.get("ARC_COORDINATOR_URL", "https://smooth-bears-wave.loca.lt")
@@ -13,25 +14,36 @@ WORKER_ID = os.environ.get("ARC_WORKER_ID", f"colab_worker_{os.getpid()}_{int(ti
 print(f"=== Starting Google Colab Worker: {WORKER_ID} ===")
 print(f"Connecting to Coordinator at: {COORDINATOR_URL}")
 
-# Setup Python module search paths
-cwd = os.getcwd()
-sys.path.insert(0, os.path.join(cwd, 'arc-neurosymbolic-v1'))
-sys.path.insert(0, cwd)
+# Dynamically locate the repository root directory regardless of nested git clone paths
+script_dir = Path(__file__).resolve().parent  # distributed directory
+repo_root = script_dir.parent                  # project root
 
-# Download ARC data if not present locally in Colab
-DATA_DIR = os.path.join(cwd, 'data', 'arc-prize-2026-arc-agi-2')
+# Add repo root and inner solver paths
+sys.path.insert(0, str(repo_root))
+sys.path.insert(0, str(repo_root / "arc-neurosymbolic-v1"))
+
+# Setup data directory paths
+DATA_DIR = repo_root / "data" / "arc-prize-2026-arc-agi-2"
 os.makedirs(DATA_DIR, exist_ok=True)
-CHALLENGES_PATH = os.path.join(DATA_DIR, 'arc-agi_training_challenges.json')
-SOLUTIONS_PATH = os.path.join(DATA_DIR, 'arc-agi_training_solutions.json')
+CHALLENGES_PATH = str(DATA_DIR / "arc-agi_training_challenges.json")
+SOLUTIONS_PATH = str(DATA_DIR / "arc-agi_training_solutions.json")
 
+# Download datasets if not present
 if not os.path.exists(CHALLENGES_PATH):
-    print("Downloading dataset JSONs...")
+    print("Downloading ARC training dataset JSONs...")
     ch_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/arc-agi_training_challenges.json"
     sol_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/arc-agi_training_solutions.json"
     try:
-        r = requests.get("https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/00576224.json") # fallback check
-    except Exception:
-        pass
+        r1 = requests.get(ch_url, timeout=30)
+        r2 = requests.get(sol_url, timeout=30)
+        if r1.status_code == 200 and r2.status_code == 200:
+            with open(CHALLENGES_PATH, "wb") as f:
+                f.write(r1.content)
+            with open(SOLUTIONS_PATH, "wb") as f:
+                f.write(r2.content)
+            print("Dataset downloaded successfully!")
+    except Exception as e:
+        print(f"Dataset download notice: {e}")
 
 from arc_solver.utils.arc_io import load_challenges, load_solutions
 from arc_solver.solver.pipeline import NeuroSymbolicARCSolver
@@ -43,9 +55,8 @@ if os.path.exists(CHALLENGES_PATH):
     train_ch = load_challenges(CHALLENGES_PATH)
     train_sol = load_solutions(SOLUTIONS_PATH)
 else:
-    # Try local repo relative path
-    train_ch = load_challenges('data/arc-prize-2026-arc-agi-2/arc-agi_training_challenges.json')
-    train_sol = load_solutions('data/arc-prize-2026-arc-agi-2/arc-agi_training_solutions.json')
+    train_ch = load_challenges(str(repo_root / 'data' / 'arc-prize-2026-arc-agi-2' / 'arc-agi_training_challenges.json'))
+    train_sol = load_solutions(str(repo_root / 'data' / 'arc-prize-2026-arc-agi-2' / 'arc-agi_training_solutions.json'))
 
 solver = NeuroSymbolicARCSolver(beam_width=20, max_depth=2, ranker=None)
 engine = DiagnosticEngine(use_llm=True)
