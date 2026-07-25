@@ -73,9 +73,10 @@ HTML_DASHBOARD = """
 
     <div class="grid-stats">
         <div class="card"><div class="card-title">Connected Workers</div><div class="card-value blue" id="active-workers">0</div></div>
+        <div class="card"><div class="card-title">Pending In Queue</div><div class="card-value amber" id="pending-count">0</div></div>
         <div class="card"><div class="card-title">Tasks In Progress</div><div class="card-value amber" id="in-progress">0</div></div>
         <div class="card"><div class="card-title">Tasks Solved</div><div class="card-value green" id="solved-count">0</div></div>
-        <div class="card"><div class="card-title">Tasks Completed</div><div class="card-value" id="completed-count">0 / 0</div></div>
+        <div class="card"><div class="card-title">Tasks Processed</div><div class="card-value" id="completed-count">0 / 0</div></div>
         <div class="card"><div class="card-title">Discovered Primitives</div><div class="card-value blue" id="primitives-count">0</div></div>
     </div>
 
@@ -103,9 +104,10 @@ HTML_DASHBOARD = """
                 const data = await res.json();
                 document.getElementById('active-workers').innerText = data.active_workers_count;
                 document.getElementById('worker-count-header').innerText = data.active_workers_count;
+                document.getElementById('pending-count').innerText = data.pending;
                 document.getElementById('in-progress').innerText = data.in_progress;
                 document.getElementById('solved-count').innerText = data.solved;
-                document.getElementById('completed-count').innerText = `${data.completed} / ${data.total_tasks}`;
+                document.getElementById('completed-count').innerText = `${data.completed} / ${data.total_dataset_tasks}`;
                 document.getElementById('primitives-count').innerText = data.discovered_primitives_count;
 
                 const tbody = document.getElementById('workers-body');
@@ -175,14 +177,18 @@ def get_task():
                 del assigned_tasks[tid]
                 tasks_queue.append(tid)
 
-        # If queue is empty, reload all unsolved tasks or entire dataset so workers loop infinitely
+        # If queue is empty, recycle unsolved tasks for infinite looping
         if not tasks_queue:
             unsolved_ids = [tid for tid, res in results.items() if not res.get("solved")]
             if unsolved_ids:
                 print(f"[Coordinator] Queue empty! Re-queueing {len(unsolved_ids)} unsolved tasks for next pass...")
                 tasks_queue.extend(unsolved_ids)
+                # Clear evaluated results for unsolved tasks so pending count shows correctly
+                for tid in unsolved_ids:
+                    del results[tid]
             else:
                 print("[Coordinator] Queue empty! Re-queueing all dataset tasks...")
+                results.clear()
                 load_initial_tasks()
 
         if not tasks_queue:
@@ -218,11 +224,6 @@ def submit_result():
             "worker_id": worker_id,
             "timestamp": now,
         }
-
-        # Automatically re-queue unsolved tasks so workers keep trying them
-        if not solved:
-            if task_id not in tasks_queue:
-                tasks_queue.append(task_id)
 
         if worker_id in workers:
             workers[worker_id]["last_seen"] = now
@@ -271,6 +272,7 @@ def status():
         active_count = sum(1 for w in active_workers.values() if w["is_active"])
 
         return jsonify({
+            "total_dataset_tasks": 1000,
             "total_tasks": len(tasks_queue) + len(assigned_tasks) + len(results),
             "pending": len(tasks_queue),
             "in_progress": len(assigned_tasks),
