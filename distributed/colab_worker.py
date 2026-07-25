@@ -84,24 +84,34 @@ engine = DiagnosticEngine(use_llm=True)
 
 headers = {"bypass-tunnel-reminder": "true"}
 
-# Main worker execution loop
+# Main worker execution loop (Infinite loop - retries tunnel/task fetch automatically)
 while True:
     try:
         # Request next task from central coordinator
-        resp = requests.post(f"{COORDINATOR_URL}/api/get_task", json={"worker_id": WORKER_ID}, headers=headers, timeout=10)
-        data = resp.json()
-        
+        try:
+            resp = requests.post(f"{COORDINATOR_URL}/api/get_task", json={"worker_id": WORKER_ID}, headers=headers, timeout=15)
+            data = resp.json()
+        except Exception as net_err:
+            print(f"[{WORKER_ID}] Network/Tunnel temporary error: {net_err}. Pausing 5s before reconnecting...")
+            time.sleep(5)
+            continue
+
         if data.get("status") == "empty" or not data.get("task_id"):
-            print("No more pending tasks in queue. Worker done!")
-            break
-            
+            print("No pending tasks in queue right now. Pausing 5s before checking again...")
+            time.sleep(5)
+            continue
+
         tid = data["task_id"]
         print(f"\n[{WORKER_ID}] Processing task: {tid}")
-        
+
+        if tid not in train_ch or tid not in train_sol:
+            print(f"[{WORKER_ID}] Task ID {tid} missing from local JSON files. Skipping...")
+            continue
+
         task = train_ch[tid]
         truth = train_sol[tid]
         train_pairs = [(p.input, p.output) for p in task.train]
-        
+
         # Step 1: Run baseline neurosymbolic solver safely
         solved = False
         prog_str = ""
@@ -146,15 +156,15 @@ while True:
             "new_primitive_code": str(new_primitive_code) if new_primitive_code else None
         }
         try:
-            requests.post(f"{COORDINATOR_URL}/api/submit_result", json=report, headers=headers, timeout=10)
+            requests.post(f"{COORDINATOR_URL}/api/submit_result", json=report, headers=headers, timeout=15)
         except Exception as e:
             print(f"[{WORKER_ID}] Result submission notice: {e}")
 
         print(f"[{WORKER_ID}] Task {tid} finished. Solved: {solved} ({source})")
-        
+
         # Brief pause between tasks
         time.sleep(1)
-        
+
     except Exception as e:
         print(f"Worker loop error: {e}")
         time.sleep(5)
