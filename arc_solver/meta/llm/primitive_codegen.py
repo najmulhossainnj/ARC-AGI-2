@@ -15,7 +15,7 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
     # 1. First Priority: Check OpenRouter API Key if configured in environment
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     if openrouter_key:
-        print("[LLM Model Used] OpenRouter -> deepseek/deepseek-chat:free")
+        print("[LLM Model Used] OpenRouter -> deepseek/deepseek-chat")
         res = _call_openrouter_fallback(prompt, openrouter_key)
         if res:
             return res
@@ -102,23 +102,27 @@ def _call_groq_fallback(prompt: str, api_key: str) -> Optional[str]:
 
 
 def _call_openrouter_fallback(prompt: str, api_key: str) -> Optional[str]:
-    """Fallback to OpenRouter API (DeepSeek / Qwen free tiers)."""
+    """Fallback to OpenRouter API across valid model slugs."""
     import requests
-    try:
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {
-            "model": "deepseek/deepseek-chat:free",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
-        }
-        r = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=20)
-        if r.status_code == 200:
-            data = r.json()
-            return data["choices"][0]["message"]["content"]
-        else:
-            print(f"[LLM OpenRouter Error] HTTP {r.status_code}: {r.text}")
-    except Exception as e:
-        print(f"[LLM] OpenRouter API fallback notice: {e}")
+    models = ["deepseek/deepseek-chat", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-72b-instruct:free"]
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    for model_name in models:
+        try:
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.2,
+            }
+            r = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=20)
+            if r.status_code == 200:
+                data = r.json()
+                print(f"[LLM Model Used] OpenRouter -> {model_name}")
+                return data["choices"][0]["message"]["content"]
+            else:
+                print(f"[LLM OpenRouter Notice] {model_name} HTTP {r.status_code}: {r.text[:100]}")
+        except Exception as e:
+            print(f"[LLM OpenRouter Notice] {model_name} error: {e}")
     return None
 
 
