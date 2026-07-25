@@ -185,7 +185,7 @@ def get_task():
                 del assigned_tasks[tid]
                 tasks_queue.append(tid)
 
-        # If queue is empty, recycle all unsolved tasks or re-initialize full dataset
+        # If queue is empty, auto-recycle all unsolved tasks or re-initialize full dataset
         if not tasks_queue:
             unsolved_ids = [tid for tid, res in results.items() if not res.get("solved")]
             if unsolved_ids:
