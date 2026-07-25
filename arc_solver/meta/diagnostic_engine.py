@@ -3,11 +3,6 @@ from __future__ import annotations
 diagnostic_engine.py
 --------------------
 Orchestrates parallel rule-based analyzers + Gemini Flash LLM fallback.
-
-Usage:
-    engine = DiagnosticEngine()
-    result = engine.diagnose(task_id, train_pairs, test_pairs)
-    # result is a DiagnosisResult with .success, .candidate, .solve_fn, .source
 """
 import time
 import numpy as np
@@ -64,11 +59,11 @@ def _run_analyzer(
     train_pairs: List[Tuple[np.ndarray, np.ndarray]],
     features: dict,
 ) -> Optional[ProgramCandidate]:
-    """Run a single analyzer, catching all exceptions."""
+    """Run a single analyzer, catching all exceptions safely."""
     try:
         return analyzer.analyze(train_pairs, features)
     except Exception as e:
-        print(f"  [Analyzer:{analyzer.name}] error: {e}")
+        print(f"  [Analyzer:{analyzer.name}] notice: {e}")
         return None
 
 
@@ -118,34 +113,32 @@ class DiagnosticEngine:
                 for a in self.analyzers
             }
 
-            # Collect results; stop at first verified candidate
             pending = dict(future_to_analyzer)
             verified_candidate: Optional[ProgramCandidate] = None
             winning_analyzer: Optional[Analyzer] = None
 
-            # Process futures as they complete, but cancel rest on first win
-            for future in as_completed(pending.keys(), timeout=self.analyzer_timeout):
-                analyzer = pending[future]
-                try:
-                    candidate = future.result()
-                except FuturesTimeout:
-                    print(f"  [Analyzer:{analyzer.name}] timed out")
-                    continue
-                except Exception as e:
-                    print(f"  [Analyzer:{analyzer.name}] exception: {e}")
-                    continue
+            try:
+                for future in as_completed(pending.keys(), timeout=self.analyzer_timeout):
+                    analyzer = pending[future]
+                    try:
+                        candidate = future.result()
+                    except Exception:
+                        continue
 
-                if candidate is None:
-                    continue
+                    if candidate is None:
+                        continue
 
-                print(f"  [Analyzer:{analyzer.name}] candidate: {candidate.op} — verifying...")
-                if verify_100pct(candidate, pairs_np):
-                    print(f"  [Analyzer:{analyzer.name}] OK VERIFIED 100%!")
-                    verified_candidate = candidate
-                    winning_analyzer = analyzer
-                    break
-                else:
-                    print(f"  [Analyzer:{analyzer.name}] candidate failed verification.")
+                    print(f"  [Analyzer:{analyzer.name}] candidate: {candidate.op} — verifying...")
+                    try:
+                        if verify_100pct(candidate, pairs_np):
+                            print(f"  [Analyzer:{analyzer.name}] OK VERIFIED 100%!")
+                            verified_candidate = candidate
+                            winning_analyzer = analyzer
+                            break
+                    except Exception:
+                        pass
+            except FuturesTimeout:
+                print("  [Diagnostic] Parallel analyzers reached total timeout limit.")
 
         if verified_candidate is not None:
             return DiagnosisResult(
@@ -164,17 +157,20 @@ class DiagnosticEngine:
         print(f"\n[Diagnostic] All {len(self.analyzers)} analyzers failed -> Gemini Flash fallback...")
         tried_ops = [a.name for a in self.analyzers]
 
-        from .llm.primitive_codegen import GeminiFlashCodegen
-        codegen = GeminiFlashCodegen(api_key=self.llm_api_key, max_retries=2)
-        solve_fn = codegen.generate(task_id, pairs_np, features, tried_ops)
+        try:
+            from .llm.primitive_codegen import GeminiFlashCodegen
+            codegen = GeminiFlashCodegen(api_key=self.llm_api_key, max_retries=2)
+            solve_fn = codegen.generate(task_id, pairs_np, features, tried_ops)
 
-        if solve_fn is not None and verify_solve_fn(solve_fn, pairs_np):
-            return DiagnosisResult(
-                success=True,
-                source="llm",
-                solve_fn=solve_fn,
-                elapsed=time.time() - t0,
-            )
+            if solve_fn is not None and verify_solve_fn(solve_fn, pairs_np):
+                return DiagnosisResult(
+                    success=True,
+                    source="llm",
+                    solve_fn=solve_fn,
+                    elapsed=time.time() - t0,
+                )
+        except Exception as e:
+            print(f"[Diagnostic] LLM generator error: {e}")
 
         print(f"[Diagnostic] FAIL LLM also failed for task {task_id}.")
         return DiagnosisResult(success=False, source="none", elapsed=time.time() - t0)
