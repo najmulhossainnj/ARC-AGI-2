@@ -4,6 +4,7 @@
 import os
 import sys
 import time
+import json
 import requests
 from pathlib import Path
 
@@ -47,22 +48,40 @@ os.makedirs(DATA_DIR, exist_ok=True)
 CHALLENGES_PATH = str(DATA_DIR / "arc-agi_training_challenges.json")
 SOLUTIONS_PATH = str(DATA_DIR / "arc-agi_training_solutions.json")
 
-# Download datasets if not present
-if not os.path.exists(CHALLENGES_PATH):
-    print("Downloading ARC training dataset JSONs...")
-    ch_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/arc-agi_training_challenges.json"
-    sol_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/arc-agi_training_solutions.json"
+def download_arc_dataset(chal_path, sol_path):
+    print("Downloading ARC training dataset JSONs directly from GitHub...")
+    ch_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/arc-agi_training_challenges.json"
+    sol_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/arc-agi_training_solutions.json"
     try:
         r1 = requests.get(ch_url, timeout=30)
         r2 = requests.get(sol_url, timeout=30)
         if r1.status_code == 200 and r2.status_code == 200:
-            with open(CHALLENGES_PATH, "wb") as f:
+            with open(chal_path, "wb") as f:
                 f.write(r1.content)
-            with open(SOLUTIONS_PATH, "wb") as f:
+            with open(sol_path, "wb") as f:
                 f.write(r2.content)
             print("Dataset downloaded successfully!")
+            return True
+        else:
+            # Fallback to alternate raw url layout
+            ch_url2 = "https://raw.githubusercontent.com/arcprize/ARC-AGI/main/data/arc-agi_training_challenges.json"
+            sol_url2 = "https://raw.githubusercontent.com/arcprize/ARC-AGI/main/data/arc-agi_training_solutions.json"
+            r1 = requests.get(ch_url2, timeout=30)
+            r2 = requests.get(sol_url2, timeout=30)
+            if r1.status_code == 200 and r2.status_code == 200:
+                with open(chal_path, "wb") as f:
+                    f.write(r1.content)
+                with open(sol_path, "wb") as f:
+                    f.write(r2.content)
+                print("Dataset downloaded from arcprize successfully!")
+                return True
     except Exception as e:
         print(f"Dataset download notice: {e}")
+    return False
+
+# Download datasets if missing or empty
+if not os.path.exists(CHALLENGES_PATH) or os.path.getsize(CHALLENGES_PATH) == 0:
+    download_arc_dataset(CHALLENGES_PATH, SOLUTIONS_PATH)
 
 from arc_solver.utils.arc_io import load_challenges, load_solutions
 from arc_solver.solver.pipeline import NeuroSymbolicARCSolver
@@ -70,12 +89,14 @@ from arc_solver.meta.diagnostic_engine import DiagnosticEngine
 from arc_solver.meta.auto_primitive_injector import inject_llm_solve
 
 # Load challenge set
-if os.path.exists(CHALLENGES_PATH):
+try:
     train_ch = load_challenges(CHALLENGES_PATH)
     train_sol = load_solutions(SOLUTIONS_PATH)
-else:
-    train_ch = load_challenges(str(repo_root / 'data' / 'arc-prize-2026-arc-agi-2' / 'arc-agi_training_challenges.json'))
-    train_sol = load_solutions(str(repo_root / 'data' / 'arc-prize-2026-arc-agi-2' / 'arc-agi_training_solutions.json'))
+except Exception as e:
+    print(f"Retrying dataset download due to load error: {e}")
+    download_arc_dataset(CHALLENGES_PATH, SOLUTIONS_PATH)
+    train_ch = load_challenges(CHALLENGES_PATH)
+    train_sol = load_solutions(SOLUTIONS_PATH)
 
 solver = NeuroSymbolicARCSolver(beam_width=20, max_depth=2, ranker=None)
 engine = DiagnosticEngine(use_llm=True)
