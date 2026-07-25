@@ -9,17 +9,17 @@ from .prompt_builder import build_prompt
 
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
-    """Call Gemini Flash API with automatic rate-limit backoff."""
+    """Call Gemini Flash API using the official modern google-genai SDK."""
     import os
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         print("[LLM] No GEMINI_API_KEY / GOOGLE_API_KEY set in environment.")
         return None
 
-    # Priority model names for google.generativeai
-    models_to_try = ["gemini-1.5-flash-latest", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.5-flash"]
+    # Priority model names for google.genai SDK
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
-    # Try new google.genai SDK if available
+    # 1. Try modern google-genai SDK
     try:
         from google import genai
         client = genai.Client(api_key=key)
@@ -39,13 +39,13 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                     wait_sec = min(wait_sec, 15)
                     time.sleep(wait_sec)
     except ImportError:
-        pass
+        print("[LLM] google-genai not installed. Installing google-genai package...")
 
-    # Try legacy SDK
+    # 2. Fallback to legacy SDK if modern SDK fails
     try:
         import google.generativeai as genai_legacy  # type: ignore
         genai_legacy.configure(api_key=key)
-        for model_name in models_to_try:
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
                 m = genai_legacy.GenerativeModel(model_name)
                 resp = m.generate_content(
