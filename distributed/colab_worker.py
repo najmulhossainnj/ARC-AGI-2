@@ -102,36 +102,39 @@ while True:
         truth = train_sol[tid]
         train_pairs = [(p.input, p.output) for p in task.train]
         
-        # Step 1: Run baseline neurosymbolic solver
-        t0 = time.time()
-        preds, programs = solver.solve_task(train_pairs, task.test)
-        dt = time.time() - t0
-        
+        # Step 1: Run baseline neurosymbolic solver safely
         solved = False
         prog_str = ""
-        if preds and len(preds) > 0:
-            for attempt in preds[0]:
-                import numpy as np
-                if np.array_equal(np.array(attempt), np.array(truth[0])):
-                    solved = True
-                    prog_str = str(programs[0])
-                    break
+        try:
+            preds, programs = solver.solve_task(train_pairs, task.test)
+            if preds and len(preds) > 0:
+                for attempt in preds[0]:
+                    import numpy as np
+                    if np.array_equal(np.array(attempt), np.array(truth[0])):
+                        solved = True
+                        prog_str = str(programs[0])
+                        break
+        except Exception as e:
+            print(f"[{WORKER_ID}] Baseline solver notice: {e}")
 
         source = "original" if solved else "none"
         new_primitive_code = None
 
         # Step 2: If missed, run Diagnostic Engine (Rule-based + Gemini LLM fallback)
         if not solved:
-            diagnosis = engine.diagnose(tid, train_pairs, task.test)
-            if diagnosis.success:
-                solved = True
-                source = diagnosis.source
-                if diagnosis.source == "llm" and diagnosis.solve_fn:
-                    new_primitive_code = getattr(diagnosis.solve_fn, "_llm_code", None)
-                    op_name = inject_llm_solve(tid, diagnosis.solve_fn)
-                    prog_str = str(op_name)
-                elif diagnosis.candidate:
-                    prog_str = str(diagnosis.candidate)
+            try:
+                diagnosis = engine.diagnose(tid, train_pairs, task.test)
+                if diagnosis.success:
+                    solved = True
+                    source = diagnosis.source
+                    if diagnosis.source == "llm" and diagnosis.solve_fn:
+                        new_primitive_code = getattr(diagnosis.solve_fn, "_llm_code", None)
+                        op_name = inject_llm_solve(tid, diagnosis.solve_fn)
+                        prog_str = str(op_name)
+                    elif diagnosis.candidate:
+                        prog_str = str(diagnosis.candidate)
+            except Exception as e:
+                print(f"[{WORKER_ID}] Diagnostic engine notice: {e}")
 
         # Step 3: Report results to coordinator
         report = {
@@ -142,7 +145,11 @@ while True:
             "program_str": str(prog_str),
             "new_primitive_code": str(new_primitive_code) if new_primitive_code else None
         }
-        requests.post(f"{COORDINATOR_URL}/api/submit_result", json=report, headers=headers, timeout=10)
+        try:
+            requests.post(f"{COORDINATOR_URL}/api/submit_result", json=report, headers=headers, timeout=10)
+        except Exception as e:
+            print(f"[{WORKER_ID}] Result submission notice: {e}")
+
         print(f"[{WORKER_ID}] Task {tid} finished. Solved: {solved} ({source})")
         
         # Brief pause between tasks
