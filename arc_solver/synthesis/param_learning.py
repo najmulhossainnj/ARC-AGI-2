@@ -105,6 +105,14 @@ def learn_rank_recolor(train_pairs) -> List:
     """Learn object rank recoloring specs."""
     return []
 
+def learn_rank_resize(train_pairs) -> List:
+    """Learn object rank resizing specs."""
+    return []
+
+def learn_objects_to_strip(train_pairs) -> List:
+    """Learn object to strip specs."""
+    return []
+
 def learn_translate_shift(train_pairs, background=0) -> List[Tuple[int, int]]:
     """Learn uniform translation (dr, dc) shift for non-background pixels."""
     shifts = []
