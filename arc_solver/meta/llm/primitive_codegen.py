@@ -9,12 +9,32 @@ from .prompt_builder import build_prompt
 
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
-    """Call Gemini Flash API across multiple free models and API keys with automatic rate-limit pause."""
+    """Call Gemini Flash API across multiple free models and API keys, or fallback to OpenRouter/Groq."""
     import os
+
+    # 1. First Priority: Check OpenRouter API Key if configured in environment
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        print("[LLM Model Used] OpenRouter -> deepseek/deepseek-chat:free")
+        res = _call_openrouter_fallback(prompt, openrouter_key)
+        if res:
+            return res
+        print("[LLM] OpenRouter fallback failed, trying Gemini endpoints...")
+
+    # 2. Check Groq API Key if configured in environment
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        print("[LLM Model Used] Groq -> llama-3.3-70b-versatile")
+        res = _call_groq_fallback(prompt, groq_key)
+        if res:
+            return res
+        print("[LLM] Groq fallback failed, trying Gemini endpoints...")
+
+    # 3. Gemini API Key Cascade
     raw_keys = api_key or os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
     keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
     if not keys:
-        print("[LLM] No GEMINI_API_KEY set in environment.")
+        print("[LLM] No GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY found in environment.")
         return None
 
     models_to_try = [
@@ -36,20 +56,20 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                         contents=prompt,
                     )
                     if response and response.text:
+                        print(f"[LLM Model Used] Gemini -> {model_name} (Key ...{key[-6:]})")
                         return response.text
                 except Exception as e:
                     err_str = str(e)
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Quota" in err_str:
-                        # Extract requested retry delay (e.g. 'retry in 36s' or 'retryDelay: 36s')
                         m = re.search(r"(\d+)(?:\.\d+)?s", err_str, re.IGNORECASE)
                         wait_sec = int(m.group(1)) + 1 if m else 10
                         wait_sec = min(max(wait_sec, 5), 45)
-                        print(f"[LLM] Rate limit hit ({model_name} / key ...{key[-6:]}). Waiting {wait_sec}s for quota reset...")
+                        print(f"[LLM Rate Limit] Endpoint {model_name} hit rate limit (Key ...{key[-6:]}). Pausing {wait_sec}s...")
                         time.sleep(wait_sec)
-                        # Retry model once after waiting
                         try:
                             resp = client.models.generate_content(model=model_name, contents=prompt)
                             if resp and resp.text:
+                                print(f"[LLM Model Used] Gemini -> {model_name} after retry")
                                 return resp.text
                         except Exception:
                             continue
@@ -57,19 +77,6 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                         continue
     except ImportError:
         pass
-
-    # Fallback to Groq / OpenRouter if GROQ_API_KEY / OPENROUTER_API_KEY present
-    groq_key = os.environ.get("GROQ_API_KEY")
-    if groq_key:
-        res = _call_groq_fallback(prompt, groq_key)
-        if res:
-            return res
-
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-    if openrouter_key:
-        res = _call_openrouter_fallback(prompt, openrouter_key)
-        if res:
-            return res
 
     print("[LLM] All LLM endpoints / keys were exhausted or rate limited.")
     return None
@@ -108,6 +115,8 @@ def _call_openrouter_fallback(prompt: str, api_key: str) -> Optional[str]:
         if r.status_code == 200:
             data = r.json()
             return data["choices"][0]["message"]["content"]
+        else:
+            print(f"[LLM OpenRouter Error] HTTP {r.status_code}: {r.text}")
     except Exception as e:
         print(f"[LLM] OpenRouter API fallback notice: {e}")
     return None
