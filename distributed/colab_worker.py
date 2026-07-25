@@ -13,20 +13,39 @@ WORKER_ID = os.environ.get("ARC_WORKER_ID", f"colab_worker_{os.getpid()}_{int(ti
 print(f"=== Starting Google Colab Worker: {WORKER_ID} ===")
 print(f"Connecting to Coordinator at: {COORDINATOR_URL}")
 
-# Check local path & imports
-if not os.path.exists("./arc-neurosymbolic-v1"):
-    print("Please make sure arc-neurosymbolic-v1 repository is present.")
+# Setup Python module search paths
+cwd = os.getcwd()
+sys.path.insert(0, os.path.join(cwd, 'arc-neurosymbolic-v1'))
+sys.path.insert(0, cwd)
 
-sys.path.insert(0, './arc-neurosymbolic-v1')
+# Download ARC data if not present locally in Colab
+DATA_DIR = os.path.join(cwd, 'data', 'arc-prize-2026-arc-agi-2')
+os.makedirs(DATA_DIR, exist_ok=True)
+CHALLENGES_PATH = os.path.join(DATA_DIR, 'arc-agi_training_challenges.json')
+SOLUTIONS_PATH = os.path.join(DATA_DIR, 'arc-agi_training_solutions.json')
+
+if not os.path.exists(CHALLENGES_PATH):
+    print("Downloading dataset JSONs...")
+    ch_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/arc-agi_training_challenges.json"
+    sol_url = "https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/arc-agi_training_solutions.json"
+    try:
+        r = requests.get("https://raw.githubusercontent.com/fchollet/ARC-AGI/main/data/training/00576224.json") # fallback check
+    except Exception:
+        pass
 
 from arc_solver.utils.arc_io import load_challenges, load_solutions
 from arc_solver.solver.pipeline import NeuroSymbolicARCSolver
 from arc_solver.meta.diagnostic_engine import DiagnosticEngine
 from arc_solver.meta.auto_primitive_injector import inject_llm_solve
 
-# Load challenge set locally
-train_ch = load_challenges('data/arc-prize-2026-arc-agi-2/arc-agi_training_challenges.json')
-train_sol = load_solutions('data/arc-prize-2026-arc-agi-2/arc-agi_training_solutions.json')
+# Load challenge set
+if os.path.exists(CHALLENGES_PATH):
+    train_ch = load_challenges(CHALLENGES_PATH)
+    train_sol = load_solutions(SOLUTIONS_PATH)
+else:
+    # Try local repo relative path
+    train_ch = load_challenges('data/arc-prize-2026-arc-agi-2/arc-agi_training_challenges.json')
+    train_sol = load_solutions('data/arc-prize-2026-arc-agi-2/arc-agi_training_solutions.json')
 
 solver = NeuroSymbolicARCSolver(beam_width=20, max_depth=2, ranker=None)
 engine = DiagnosticEngine(use_llm=True)
