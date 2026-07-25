@@ -175,6 +175,16 @@ def get_task():
                 del assigned_tasks[tid]
                 tasks_queue.append(tid)
 
+        # If queue is empty, reload all unsolved tasks or entire dataset so workers loop infinitely
+        if not tasks_queue:
+            unsolved_ids = [tid for tid, res in results.items() if not res.get("solved")]
+            if unsolved_ids:
+                print(f"[Coordinator] Queue empty! Re-queueing {len(unsolved_ids)} unsolved tasks for next pass...")
+                tasks_queue.extend(unsolved_ids)
+            else:
+                print("[Coordinator] Queue empty! Re-queueing all dataset tasks...")
+                load_initial_tasks()
+
         if not tasks_queue:
             workers[worker_id]["current_task"] = None
             return jsonify({"status": "empty", "task_id": None})
