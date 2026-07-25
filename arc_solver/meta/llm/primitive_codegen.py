@@ -10,46 +10,62 @@ from .prompt_builder import build_prompt
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
     """Call Gemini Flash API and return the text response."""
-    try:
-        import google.generativeai as genai  # type: ignore
-    except ImportError:
-        print("[LLM] google-generativeai not installed. pip install google-generativeai")
-        return None
-
     import os
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         print("[LLM] No GEMINI_API_KEY / GOOGLE_API_KEY set in environment.")
         return None
 
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # Support both new google.genai and legacy google.generativeai
+    try:
+        from google import genai
+        client = genai.Client(api_key=key)
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                pass
+    except ImportError:
+        pass
 
     try:
-        resp = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=2048,
-            ),
-        )
-        return resp.text
+        import google.generativeai as genai_legacy  # type: ignore
+        genai_legacy.configure(api_key=key)
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]:
+            try:
+                m = genai_legacy.GenerativeModel(model_name)
+                resp = m.generate_content(
+                    prompt,
+                    generation_config=genai_legacy.types.GenerationConfig(
+                        temperature=0.2,
+                        max_output_tokens=2048,
+                    ),
+                )
+                if resp and resp.text:
+                    return resp.text
+            except Exception as e:
+                pass
     except Exception as e:
         print(f"[LLM] Gemini API error: {e}")
         return None
 
+    print("[LLM] All Gemini Flash model endpoints failed.")
+    return None
+
 
 def _extract_python_code(text: str) -> Optional[str]:
     """Extract Python code from markdown code block in LLM response."""
-    # Try ```python ... ``` block first
     m = re.search(r"```python\s*(.*?)```", text, re.DOTALL)
     if m:
         return m.group(1).strip()
-    # Fallback: ``` ... ```
     m = re.search(r"```\s*(.*?)```", text, re.DOTALL)
     if m:
         return m.group(1).strip()
-    # Fallback: raw code starting with 'def solve'
     m = re.search(r"(def solve\s*\(.*)", text, re.DOTALL)
     if m:
         return m.group(1).strip()
@@ -77,11 +93,6 @@ def _verify_solve_fn(
     timeout_per_pair: float = 5.0,
 ) -> bool:
     """Verify solve_fn achieves 100% exact match on all train pairs."""
-    import signal
-
-    def _handler(signum, frame):
-        raise TimeoutError()
-
     for inp, out in train_pairs:
         inp, out = np.asarray(inp, dtype=np.int16), np.asarray(out, dtype=np.int16)
         try:
@@ -109,10 +120,6 @@ class GeminiFlashCodegen:
         features: dict,
         tried_ops: List[str],
     ) -> Optional[Callable]:
-        """
-        Returns a verified solve() function, or None if generation fails.
-        The returned function takes (grid: np.ndarray) -> np.ndarray.
-        """
         prompt = build_prompt(task_id, train_pairs, features, tried_ops)
 
         for attempt in range(1, self.max_retries + 1):
@@ -132,10 +139,10 @@ class GeminiFlashCodegen:
                 continue
 
             if _verify_solve_fn(solve_fn, train_pairs):
-                print(f"[LLM] ✓ Generated solve() passes 100% of train pairs for task {task_id}!")
-                solve_fn._llm_code = code  # attach for injection
+                print(f"[LLM] OK Generated solve() passes 100% of train pairs for task {task_id}!")
+                solve_fn._llm_code = code
                 return solve_fn
             else:
-                print(f"[LLM] ✗ Generated solve() failed verification (attempt {attempt}).")
+                print(f"[LLM] Candidate generated solve() failed verification (attempt {attempt}).")
 
         return None
