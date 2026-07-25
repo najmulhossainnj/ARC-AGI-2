@@ -62,8 +62,7 @@ def _run_analyzer(
     """Run a single analyzer, catching all exceptions safely."""
     try:
         return analyzer.analyze(train_pairs, features)
-    except Exception as e:
-        print(f"  [Analyzer:{analyzer.name}] notice: {e}")
+    except Exception:
         return None
 
 
@@ -170,7 +169,7 @@ class DiagnosticEngine:
                     elapsed=time.time() - t0,
                 )
         except Exception as e:
-            print(f"[Diagnostic] LLM generator error: {e}")
+            pass
 
         print(f"[Diagnostic] FAIL LLM also failed for task {task_id}.")
         return DiagnosisResult(success=False, source="none", elapsed=time.time() - t0)
