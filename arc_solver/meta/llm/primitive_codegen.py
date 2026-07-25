@@ -9,18 +9,21 @@ from .prompt_builder import build_prompt
 
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
-    """Call Gemini Flash API and return the text response."""
+    """Call Gemini Flash API with automatic rate-limit backoff."""
     import os
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         print("[LLM] No GEMINI_API_KEY / GOOGLE_API_KEY set in environment.")
         return None
 
-    # Support both new google.genai and legacy google.generativeai
+    # Priority model names for google.generativeai
+    models_to_try = ["gemini-1.5-flash-latest", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.5-flash"]
+
+    # Try new google.genai SDK if available
     try:
         from google import genai
         client = genai.Client(api_key=key)
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        for model_name in models_to_try:
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -29,14 +32,20 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                 if response and response.text:
                     return response.text
             except Exception as e:
-                pass
+                err_str = str(e)
+                if "429" in err_str or "Quota" in err_str:
+                    m = re.search(r"retry in (\d+)", err_str, re.IGNORECASE)
+                    wait_sec = int(m.group(1)) + 1 if m else 5
+                    wait_sec = min(wait_sec, 15)
+                    time.sleep(wait_sec)
     except ImportError:
         pass
 
+    # Try legacy SDK
     try:
         import google.generativeai as genai_legacy  # type: ignore
         genai_legacy.configure(api_key=key)
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]:
+        for model_name in models_to_try:
             try:
                 m = genai_legacy.GenerativeModel(model_name)
                 resp = m.generate_content(
@@ -49,8 +58,12 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                 if resp and resp.text:
                     return resp.text
             except Exception as e:
-                print(f"[LLM] legacy endpoint {model_name} error: {e}")
-                pass
+                err_str = str(e)
+                if "429" in err_str or "Quota" in err_str:
+                    m = re.search(r"retry in (\d+)", err_str, re.IGNORECASE)
+                    wait_sec = int(m.group(1)) + 1 if m else 5
+                    wait_sec = min(wait_sec, 15)
+                    time.sleep(wait_sec)
     except Exception as e:
         print(f"[LLM] Gemini API error: {e}")
         return None
@@ -101,8 +114,7 @@ def _verify_solve_fn(
             pred = np.asarray(pred, dtype=np.int16)
             if pred.shape != out.shape or not np.array_equal(pred, out):
                 return False
-        except Exception as e:
-            # Silence expected test evaluation errors (shape mismatch, index errors during search)
+        except Exception:
             return False
     return True
 
