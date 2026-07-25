@@ -9,7 +9,7 @@ from .prompt_builder import build_prompt
 
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
-    """Call Gemini Flash API using the official modern google-genai SDK."""
+    """Call Gemini Flash API using the official modern google-genai SDK with automatic retry."""
     import os
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
@@ -19,56 +19,34 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
     # Priority model names for google.genai SDK
     models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
-    # 1. Try modern google-genai SDK
+    # Try modern google-genai SDK
     try:
         from google import genai
         client = genai.Client(api_key=key)
         for model_name in models_to_try:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    return response.text
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str or "Quota" in err_str:
-                    m = re.search(r"retry in (\d+)", err_str, re.IGNORECASE)
-                    wait_sec = int(m.group(1)) + 1 if m else 5
-                    wait_sec = min(wait_sec, 15)
-                    time.sleep(wait_sec)
+            for retry in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                    )
+                    if response and response.text:
+                        return response.text
+                except Exception as e:
+                    err_str = str(e)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Quota" in err_str:
+                        m = re.search(r"(\d+)(?:\.\d+)?s", err_str, re.IGNORECASE)
+                        wait_sec = int(m.group(1)) + 1 if m else 6
+                        wait_sec = min(max(wait_sec, 3), 15)
+                        print(f"[LLM] Rate limit hit ({model_name}). Retrying in {wait_sec}s...")
+                        time.sleep(wait_sec)
+                    else:
+                        break
     except ImportError:
-        print("[LLM] google-genai not installed. Installing google-genai package...")
-
-    # 2. Fallback to legacy SDK if modern SDK fails
-    try:
-        import google.generativeai as genai_legacy  # type: ignore
-        genai_legacy.configure(api_key=key)
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
-            try:
-                m = genai_legacy.GenerativeModel(model_name)
-                resp = m.generate_content(
-                    prompt,
-                    generation_config=genai_legacy.types.GenerationConfig(
-                        temperature=0.2,
-                        max_output_tokens=2048,
-                    ),
-                )
-                if resp and resp.text:
-                    return resp.text
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str or "Quota" in err_str:
-                    m = re.search(r"retry in (\d+)", err_str, re.IGNORECASE)
-                    wait_sec = int(m.group(1)) + 1 if m else 5
-                    wait_sec = min(wait_sec, 15)
-                    time.sleep(wait_sec)
+        print("[LLM] google-genai package missing. Install via: pip install google-genai")
     except Exception as e:
         print(f"[LLM] Gemini API error: {e}")
-        return None
 
-    print("[LLM] All Gemini Flash model endpoints failed.")
     return None
 
 
