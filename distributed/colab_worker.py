@@ -14,13 +14,25 @@ WORKER_ID = os.environ.get("ARC_WORKER_ID", f"colab_worker_{os.getpid()}_{int(ti
 print(f"=== Starting Google Colab Worker: {WORKER_ID} ===")
 print(f"Connecting to Coordinator at: {COORDINATOR_URL}")
 
-# Dynamically locate the repository root directory regardless of nested git clone paths
-script_dir = Path(__file__).resolve().parent  # distributed directory
-repo_root = script_dir.parent                  # project root
+# Walk up directories until we find a folder containing 'arc-neurosymbolic-v1' or 'arc_solver'
+curr = Path(__file__).resolve().parent
+repo_root = None
+for p in [curr] + list(curr.parents):
+    if (p / "arc-neurosymbolic-v1").exists() or (p / "arc_solver").exists():
+        repo_root = p
+        break
 
-# Add repo root and inner solver paths
+if repo_root is None:
+    repo_root = curr.parent
+
+print(f"Detected Repo Root: {repo_root}")
+
+# Recursively add all parent/child directories containing arc_solver to sys.path
 sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(repo_root / "arc-neurosymbolic-v1"))
+
+for p in repo_root.glob("**/arc_solver"):
+    sys.path.insert(0, str(p.parent))
 
 # Setup data directory paths
 DATA_DIR = repo_root / "data" / "arc-prize-2026-arc-agi-2"
