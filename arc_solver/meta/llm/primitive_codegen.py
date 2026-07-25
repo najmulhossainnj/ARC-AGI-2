@@ -9,22 +9,19 @@ from .prompt_builder import build_prompt
 
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
-    """Call Gemini Flash API across multiple free models and API keys."""
+    """Call Gemini Flash API across multiple free models and API keys with automatic rate-limit pause."""
     import os
-    # Support comma-separated list of keys for automatic key rotation
     raw_keys = api_key or os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
     keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
     if not keys:
         print("[LLM] No GEMINI_API_KEY set in environment.")
         return None
 
-    # Try all free models (Flash, Pro, Experimental, Lite)
     models_to_try = [
         "gemini-2.5-flash",
         "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
         "gemini-2.0-flash-lite",
+        "gemini-1.5-flash-latest",
         "gemini-2.0-flash-thinking-exp",
     ]
 
@@ -43,8 +40,19 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                 except Exception as e:
                     err_str = str(e)
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Quota" in err_str:
-                        # Continue to next model or next API key immediately
-                        continue
+                        # Extract requested retry delay (e.g. 'retry in 36s' or 'retryDelay: 36s')
+                        m = re.search(r"(\d+)(?:\.\d+)?s", err_str, re.IGNORECASE)
+                        wait_sec = int(m.group(1)) + 1 if m else 10
+                        wait_sec = min(max(wait_sec, 5), 45)
+                        print(f"[LLM] Rate limit hit ({model_name} / key ...{key[-6:]}). Waiting {wait_sec}s for quota reset...")
+                        time.sleep(wait_sec)
+                        # Retry model once after waiting
+                        try:
+                            resp = client.models.generate_content(model=model_name, contents=prompt)
+                            if resp and resp.text:
+                                return resp.text
+                        except Exception:
+                            continue
                     else:
                         continue
     except ImportError:
