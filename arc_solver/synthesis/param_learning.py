@@ -29,6 +29,9 @@ def learn_color_map(train_pairs, background=0) -> List[Dict[int, int]]:
     nontrivial = {k: v for k, v in mapping.items() if k != v}
     return [nontrivial] if nontrivial else []
 
+# Function alias for backwards compatibility with grammar.py
+learn_colormap = learn_color_map
+
 def learn_translate_shift(train_pairs, background=0) -> List[Tuple[int, int]]:
     """Learn uniform translation (dr, dc) shift for non-background pixels."""
     shifts = []
