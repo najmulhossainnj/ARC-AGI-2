@@ -14,27 +14,34 @@ WORKER_ID = os.environ.get("ARC_WORKER_ID", f"colab_worker_{os.getpid()}_{int(ti
 print(f"=== Starting Google Colab Worker: {WORKER_ID} ===")
 print(f"Connecting to Coordinator at: {COORDINATOR_URL}")
 
-# Walk up directories until we find a folder containing 'arc-neurosymbolic-v1' or 'arc_solver'
+# Walk up and down to find the directory containing 'arc_solver'
 curr = Path(__file__).resolve().parent
-repo_root = None
-for p in [curr] + list(curr.parents):
-    if (p / "arc-neurosymbolic-v1").exists() or (p / "arc_solver").exists():
-        repo_root = p
+search_paths = [curr, curr.parent, Path.cwd()]
+for p in list(curr.parents) + list(Path.cwd().parents):
+    search_paths.append(p)
+
+solver_parent = None
+for p in search_paths:
+    if (p / "arc_solver").exists():
+        solver_parent = p
+        break
+    elif (p / "arc-neurosymbolic-v1" / "arc_solver").exists():
+        solver_parent = p / "arc-neurosymbolic-v1"
         break
 
-if repo_root is None:
-    repo_root = curr.parent
+if solver_parent:
+    print(f"Adding arc_solver parent directory to sys.path: {solver_parent}")
+    sys.path.insert(0, str(solver_parent))
 
-print(f"Detected Repo Root: {repo_root}")
-
-# Recursively add all parent/child directories containing arc_solver to sys.path
-sys.path.insert(0, str(repo_root))
-sys.path.insert(0, str(repo_root / "arc-neurosymbolic-v1"))
-
-for p in repo_root.glob("**/arc_solver"):
-    sys.path.insert(0, str(p.parent))
+# Fallback: search recursively in working directory
+for root, dirs, files in os.walk(os.getcwd()):
+    if "arc_solver" in dirs:
+        print(f"Found arc_solver in: {root}")
+        sys.path.insert(0, root)
+        break
 
 # Setup data directory paths
+repo_root = solver_parent or Path.cwd()
 DATA_DIR = repo_root / "data" / "arc-prize-2026-arc-agi-2"
 os.makedirs(DATA_DIR, exist_ok=True)
 CHALLENGES_PATH = str(DATA_DIR / "arc-agi_training_challenges.json")
