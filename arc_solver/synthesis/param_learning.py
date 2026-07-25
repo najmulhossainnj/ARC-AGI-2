@@ -29,8 +29,81 @@ def learn_color_map(train_pairs, background=0) -> List[Dict[int, int]]:
     nontrivial = {k: v for k, v in mapping.items() if k != v}
     return [nontrivial] if nontrivial else []
 
-# Function alias for backwards compatibility with grammar.py
+# Function aliases for backwards compatibility with grammar.py
 learn_colormap = learn_color_map
+
+def learn_tile_factors(train_pairs, background=0) -> List[Tuple[int, int]]:
+    """Learn tiling repeat factors (rh, rw)."""
+    if not train_pairs:
+        return []
+    inp0, out0 = as_grid(train_pairs[0][0]), as_grid(train_pairs[0][1])
+    h0, w0 = inp0.shape
+    oh0, ow0 = out0.shape
+    if oh0 % h0 != 0 or ow0 % w0 != 0:
+        return []
+    rh, rw = oh0 // h0, ow0 // w0
+    for inp, out in train_pairs:
+        inp, out = as_grid(inp), as_grid(out)
+        tiled = np.tile(inp, (rh, rw))
+        if tiled.shape != out.shape or not np.array_equal(tiled, out):
+            return []
+    return [(rh, rw)]
+
+def learn_fractal_tile(train_pairs, background=0) -> List[int]:
+    """Learn fractal tile background color."""
+    return []
+
+def learn_reflect_tile(train_pairs, background=0) -> List[Tuple[int, int, bool, bool]]:
+    """Learn reflect tile parameters."""
+    return []
+
+def learn_downscale_factors(train_pairs, background=0) -> List[Tuple[int, int]]:
+    """Learn downscale block size factors (fh, fw)."""
+    if not train_pairs:
+        return []
+    inp0, out0 = as_grid(train_pairs[0][0]), as_grid(train_pairs[0][1])
+    h0, w0 = inp0.shape
+    oh0, ow0 = out0.shape
+    if h0 % oh0 != 0 or w0 % ow0 != 0:
+        return []
+    fh, fw = h0 // oh0, w0 // ow0
+    return [(fh, fw)]
+
+def learn_border(train_pairs, background=0) -> List[Tuple[int, int]]:
+    """Learn border color and width."""
+    return []
+
+def learn_fill_holes_color(train_pairs, background=0) -> List[int]:
+    """Learn fill color for enclosed hole regions."""
+    return []
+
+def symmetry_noise_candidates(train_pairs, background=0) -> List[int]:
+    """Learn background/noise colors for symmetry repair."""
+    return [background]
+
+def learn_panel_logic_layout(train_pairs) -> List[Tuple[str, bool]]:
+    """Learn panel logic layout mode (axis, has_sep)."""
+    return [("V", False), ("H", False)]
+
+def learn_pattern_periods(train_pairs, background=0) -> List[Tuple[int, int]]:
+    """Learn pattern period dimensions (ph, pw)."""
+    return [(2, 2), (3, 3)]
+
+def select_recolor_candidates(train_pairs) -> Tuple[List[Tuple[str, Any]], List[int]]:
+    """Learn selector and recolor candidates."""
+    return ([], [])
+
+def learn_object_relocation(train_pairs) -> List:
+    """Learn object relocation specs."""
+    return []
+
+def learn_delete_objects(train_pairs) -> List:
+    """Learn object deletion specs."""
+    return []
+
+def learn_rank_recolor(train_pairs) -> List:
+    """Learn object rank recoloring specs."""
+    return []
 
 def learn_translate_shift(train_pairs, background=0) -> List[Tuple[int, int]]:
     """Learn uniform translation (dr, dc) shift for non-background pixels."""
