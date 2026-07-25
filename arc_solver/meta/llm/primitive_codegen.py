@@ -9,22 +9,30 @@ from .prompt_builder import build_prompt
 
 
 def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int = 30) -> Optional[str]:
-    """Call Gemini Flash API using the official modern google-genai SDK with automatic retry."""
+    """Call Gemini Flash API across multiple free models and API keys."""
     import os
-    key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not key:
-        print("[LLM] No GEMINI_API_KEY / GOOGLE_API_KEY set in environment.")
+    # Support comma-separated list of keys for automatic key rotation
+    raw_keys = api_key or os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+    keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+    if not keys:
+        print("[LLM] No GEMINI_API_KEY set in environment.")
         return None
 
-    # Priority model names for google.genai SDK
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    # Try all free models (Flash, Pro, Experimental, Lite)
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-thinking-exp",
+    ]
 
-    # Try modern google-genai SDK
     try:
         from google import genai
-        client = genai.Client(api_key=key)
-        for model_name in models_to_try:
-            for retry in range(2):
+        for key in keys:
+            client = genai.Client(api_key=key)
+            for model_name in models_to_try:
                 try:
                     response = client.models.generate_content(
                         model=model_name,
@@ -35,18 +43,65 @@ def _call_gemini_flash(prompt: str, api_key: Optional[str] = None, timeout: int 
                 except Exception as e:
                     err_str = str(e)
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Quota" in err_str:
-                        m = re.search(r"(\d+)(?:\.\d+)?s", err_str, re.IGNORECASE)
-                        wait_sec = int(m.group(1)) + 1 if m else 6
-                        wait_sec = min(max(wait_sec, 3), 15)
-                        print(f"[LLM] Rate limit hit ({model_name}). Retrying in {wait_sec}s...")
-                        time.sleep(wait_sec)
+                        # Continue to next model or next API key immediately
+                        continue
                     else:
-                        break
+                        continue
     except ImportError:
-        print("[LLM] google-genai package missing. Install via: pip install google-genai")
-    except Exception as e:
-        print(f"[LLM] Gemini API error: {e}")
+        pass
 
+    # Fallback to Groq / OpenRouter if GROQ_API_KEY / OPENROUTER_API_KEY present
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        res = _call_groq_fallback(prompt, groq_key)
+        if res:
+            return res
+
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        res = _call_openrouter_fallback(prompt, openrouter_key)
+        if res:
+            return res
+
+    print("[LLM] All LLM endpoints / keys were exhausted or rate limited.")
+    return None
+
+
+def _call_groq_fallback(prompt: str, api_key: str) -> Optional[str]:
+    """Fallback to Groq API (Llama 3.3 70B / DeepSeek R1)."""
+    import requests
+    try:
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+        }
+        r = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=20)
+        if r.status_code == 200:
+            data = r.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"[LLM] Groq API fallback notice: {e}")
+    return None
+
+
+def _call_openrouter_fallback(prompt: str, api_key: str) -> Optional[str]:
+    """Fallback to OpenRouter API (DeepSeek / Qwen free tiers)."""
+    import requests
+    try:
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": "deepseek/deepseek-chat:free",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+        }
+        r = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=20)
+        if r.status_code == 200:
+            data = r.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"[LLM] OpenRouter API fallback notice: {e}")
     return None
 
 
@@ -98,7 +153,7 @@ def _verify_solve_fn(
 
 
 class GeminiFlashCodegen:
-    """Calls Gemini Flash to generate a solve() function for a MISS task."""
+    """Calls LLMs to generate a solve() function for a MISS task."""
 
     def __init__(self, api_key: Optional[str] = None, max_retries: int = 2):
         self.api_key = api_key
@@ -114,7 +169,7 @@ class GeminiFlashCodegen:
         prompt = build_prompt(task_id, train_pairs, features, tried_ops)
 
         for attempt in range(1, self.max_retries + 1):
-            print(f"[LLM] Gemini Flash call attempt {attempt}/{self.max_retries} for task {task_id}")
+            print(f"[LLM] Code generation attempt {attempt}/{self.max_retries} for task {task_id}")
             raw = _call_gemini_flash(prompt, api_key=self.api_key)
             if raw is None:
                 break
