@@ -36,6 +36,7 @@ from .corpus_analyzers import (
     AlternatingFlipTilingAnalyzer,
     AnomalyRepairAnalyzer,
     FrameSizeToFillColorAnalyzer,
+    LegendShapeToColorAnalyzer,
 )
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
@@ -48,6 +49,7 @@ ALL_ANALYZERS = [
     AnomalyRepairAnalyzer(),            # priority=10  (repair single-cell anomaly)
     TranslationAnalyzer(),              # priority=10  (uniform shift)
     GravityFallAnalyzer(),              # priority=12  (objects fall to edge)
+    LegendShapeToColorAnalyzer(),       # priority=12  (legend shape → recolor target)
     AlternatingFlipTilingAnalyzer(),   # priority=15  (alternating flip tile expansion)
     SymmetryCompleteAnalyzer(),         # priority=15  (H/V/HV symmetry repair)
     UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
