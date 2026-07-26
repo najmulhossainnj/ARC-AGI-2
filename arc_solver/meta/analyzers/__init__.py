@@ -23,47 +23,72 @@ from .advanced_analyzers import (
     TArrowMarkerFlowAnalyzer,
     MasterTemplateInpaintAnalyzer,
 )
+from .corpus_analyzers import (
+    CountDrivenRuleAnalyzer,
+    SortByAttributeAnalyzer,
+    SizeSelectionAnalyzer,
+    TopologyHoleAnalyzer,
+    GridSectionLegendAnalyzer,
+    DiagonalPatternAnalyzer,
+    UniqueObjectExtractorAnalyzer,
+    ColorIndexedTilingAnalyzer,
+)
 
+# ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
+# Priority ordering: lower = faster/cheaper/more specific (runs first)
 ALL_ANALYZERS = [
-    # ── Existing analyzers ──────────────────────────────────────────────────
-    PatternAnalyzerWrapper(),       # priority=1  (runs first, high confidence)
-    ColorSubstitutionAnalyzer(),    # priority=5
-    TranslationAnalyzer(),          # priority=10
-    GravityFallAnalyzer(),          # priority=12
-    SymmetryCompleteAnalyzer(),     # priority=15
-    BlockCycleAnalyzer(),           # priority=18
-    PatternExtensionAnalyzer(),     # priority=22
-    ArrowReplicateAnalyzer(),       # priority=20
-    # ── New generalized analyzers (from GitMonsters pattern analysis) ────────
-    MultiEdgeGravityAnalyzer(),     # priority=22 (generalizes GravityFallAnalyzer)
-    NetworkConnectivityFillAnalyzer(), # priority=25
-    LegendRaySlideAnalyzer(),       # priority=28
-    ObjectStampRuleAnalyzer(),      # priority=28
-    ConcentricRingFillAnalyzer(),   # priority=30
-    TArrowMarkerFlowAnalyzer(),     # priority=32
-    RayCollisionDeflectionAnalyzer(), # priority=35
-    PuzzleStitchAssemblyAnalyzer(), # priority=35
-    MasterTemplateInpaintAnalyzer(), # priority=40
-    # ── Shape/geometry analyzers ─────────────────────────────────────────────
-    ParallelogramAlignAnalyzer(),   # priority=28
-    DiagonalChainAnalyzer(),        # priority=28
-    BorderCropAnalyzer(),           # priority=25
+    # ── Fast / high-precision filters ──────────────────────────────────────
+    PatternAnalyzerWrapper(),           # priority=1   (periodic pattern, very fast)
+    ColorSubstitutionAnalyzer(),        # priority=5   (1-to-1 color remap)
+    SizeSelectionAnalyzer(),            # priority=8   (keep largest/smallest)
+    TranslationAnalyzer(),              # priority=10  (uniform shift)
+    GravityFallAnalyzer(),              # priority=12  (objects fall to edge)
+    SymmetryCompleteAnalyzer(),         # priority=15  (H/V/HV symmetry repair)
+    UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
+    ColorIndexedTilingAnalyzer(),       # priority=18  (tile small pattern)
+    BlockCycleAnalyzer(),               # priority=18  (vertical block cycling)
+    GridSectionLegendAnalyzer(),        # priority=20  (separator → key+puzzle)
+    ArrowReplicateAnalyzer(),           # priority=20  (arrow-driven replication)
+    PatternExtensionAnalyzer(),         # priority=22  (diagonal pattern extension)
+    DiagonalPatternAnalyzer(),          # priority=22  ((r+c)%period color bands)
+    MultiEdgeGravityAnalyzer(),         # priority=22  (top/bottom projection)
+    # ── Mid-priority: structural analyzers ─────────────────────────────────
+    NetworkConnectivityFillAnalyzer(),  # priority=25  (dot→chain→frame fill)
+    BorderCropAnalyzer(),               # priority=25  (crop to content bbox)
+    SortByAttributeAnalyzer(),          # priority=26  (sort objects by attr)
+    LegendRaySlideAnalyzer(),           # priority=28  (legend→direction→slide)
+    ObjectStampRuleAnalyzer(),          # priority=28  (color-chain stamp rule)
+    ParallelogramAlignAnalyzer(),       # priority=28  (parallelogram alignment)
+    DiagonalChainAnalyzer(),            # priority=28  (diagonal object chain)
+    ConcentricRingFillAnalyzer(),       # priority=30  (Chebyshev distance fill)
+    TArrowMarkerFlowAnalyzer(),         # priority=32  (T-shaped arrow flow)
+    TopologyHoleAnalyzer(),             # priority=34  (hole count driven)
+    # ── Late / expensive analyzers ─────────────────────────────────────────
+    RayCollisionDeflectionAnalyzer(),   # priority=35  (ray emit + deflect)
+    PuzzleStitchAssemblyAnalyzer(),     # priority=35  (assemble fragments)
+    CountDrivenRuleAnalyzer(),          # priority=38  (count→output size/color)
+    MasterTemplateInpaintAnalyzer(),    # priority=40  (D4 template completion)
 ]
 
 ALL_ANALYZERS.sort(key=lambda a: a.priority)
 
 __all__ = [
     "Analyzer", "ProgramCandidate", "ALL_ANALYZERS",
-    # Original
+    # Original analyzers
     "ColorSubstitutionAnalyzer", "TranslationAnalyzer", "ArrowReplicateAnalyzer",
     "SymmetryCompleteAnalyzer", "GravityFallAnalyzer", "BorderCropAnalyzer",
     "PatternExtensionAnalyzer", "BlockCycleAnalyzer",
     "ParallelogramAlignAnalyzer", "DiagonalChainAnalyzer",
     "PatternAnalyzerWrapper",
-    # New (from GitMonsters analysis)
+    # Analyzers from GitMonsters/13-Impossible analysis
     "ConcentricRingFillAnalyzer", "LegendRaySlideAnalyzer",
     "NetworkConnectivityFillAnalyzer", "PuzzleStitchAssemblyAnalyzer",
     "MultiEdgeGravityAnalyzer", "ObjectStampRuleAnalyzer",
     "RayCollisionDeflectionAnalyzer", "TArrowMarkerFlowAnalyzer",
     "MasterTemplateInpaintAnalyzer",
+    # Analyzers from SOLVED-540 corpus frequency analysis
+    "CountDrivenRuleAnalyzer", "SortByAttributeAnalyzer",
+    "SizeSelectionAnalyzer", "TopologyHoleAnalyzer",
+    "GridSectionLegendAnalyzer", "DiagonalPatternAnalyzer",
+    "UniqueObjectExtractorAnalyzer", "ColorIndexedTilingAnalyzer",
 ]
