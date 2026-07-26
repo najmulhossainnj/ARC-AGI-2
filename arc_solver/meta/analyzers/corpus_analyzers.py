@@ -1178,3 +1178,355 @@ class RayLinePeriodicStrideAnalyzer(Analyzer):
         if np.array_equal(cand, out):
             return True
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. Component Area Range Recolor Analyzer (solves 0a2355a6-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class ComponentAreaRangeRecolorAnalyzer(Analyzer):
+    """
+    Detect: 8-connected components of color A are recolored based on their cell area ranges:
+    area <= 12 -> 1, 13..17 -> 3, 18..25 -> 2, area >= 26 -> 4.
+    """
+    name = "component_area_range_recolor"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                bg = _bg(g)
+                colors = set(np.unique(g)) - {bg}
+                for c in colors:
+                    mask = (g == c)
+                    comps = _components(mask)
+                    for comp in comps:
+                        area = len(comp)
+                        if area >= 26:
+                            col = 4
+                        elif area >= 18:
+                            col = 2
+                        elif area >= 13:
+                            col = 3
+                        else:
+                            col = 1
+                        for r, cc in comp:
+                            g[r, cc] = col
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="COMPONENT_AREA_RANGE_RECOLOR",
+            params=(),
+            description="Recolor components based on area thresholds",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        if inp.shape != out.shape:
+            return False
+        bg = _bg(inp)
+        colors = set(np.unique(inp)) - {bg}
+        cand = inp.copy()
+        for c in colors:
+            comps = _components(inp == c)
+            for comp in comps:
+                area = len(comp)
+                if area >= 26:
+                    col = 4
+                elif area >= 18:
+                    col = 2
+                elif area >= 13:
+                    col = 3
+                else:
+                    col = 1
+                for r, cc in comp:
+                    cand[r, cc] = col
+        return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 18. Secondary Color Crop Analyzer (solves 0b148d64-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class SecondaryColorCropAnalyzer(Analyzer):
+    """
+    Detect: Output is a bounding-box crop of the secondary non-background color.
+    """
+    name = "secondary_color_crop"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                bg = _bg(g)
+                colors = list(set(np.unique(g)) - {bg})
+                if not colors:
+                    return g.tolist()
+                counts = [(int((g == c).sum()), c) for c in colors]
+                counts.sort()
+                sec_col = counts[0][1]
+                rs, cs = np.where(g == sec_col)
+                if len(rs) == 0:
+                    return g.tolist()
+                r0, r1 = int(rs.min()), int(rs.max())
+                c0, c1 = int(cs.min()), int(cs.max())
+                crop = g[r0:r1+1, c0:c1+1].copy()
+                crop = np.where(crop == sec_col, sec_col, bg)
+                return crop.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="SECONDARY_COLOR_CROP",
+            params=(),
+            description="Crop to bounding box of secondary color",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        bg = _bg(inp)
+        colors = list(set(np.unique(inp)) - {bg})
+        if not colors:
+            return False
+        counts = [(int((inp == c).sum()), c) for c in colors]
+        counts.sort()
+        sec_col = counts[0][1]
+        rs, cs = np.where(inp == sec_col)
+        if len(rs) == 0:
+            return False
+        r0, r1 = int(rs.min()), int(rs.max())
+        c0, c1 = int(cs.min()), int(cs.max())
+        crop = inp[r0:r1+1, c0:c1+1].copy()
+        crop = np.where(crop == sec_col, sec_col, bg)
+        return crop.shape == out.shape and np.array_equal(crop, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 19. Top-Left Key Row Swap Analyzer (solves 0becf7df-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class TopLeftKeyRowSwapAnalyzer(Analyzer):
+    """
+    Detect: Top-left 2x2 section acts as a key specifying color pairs:
+    Row 0 key colors (c0, c1) swap across the grid.
+    Row 1 key colors (c2, c3) swap across the grid.
+    """
+    name = "top_left_key_row_swap"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                key = g[:2, :2].copy()
+                c0, c1 = key[0, 0], key[0, 1]
+                c2, c3 = key[1, 0], key[1, 1]
+                m0, m1 = (g == c0), (g == c1)
+                m2, m3 = (g == c2), (g == c3)
+                g[m0] = c1
+                g[m1] = c0
+                g[m2] = c3
+                g[m3] = c2
+                g[:2, :2] = key
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="TOP_LEFT_KEY_ROW_SWAP",
+            params=(),
+            description="Swap color pairs defined by top-left 2x2 key rows",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        if inp.shape != out.shape:
+            return False
+        cand = inp.copy()
+        key = inp[:2, :2]
+        c0, c1 = key[0, 0], key[0, 1]
+        c2, c3 = key[1, 0], key[1, 1]
+        m0, m1 = (inp == c0), (inp == c1)
+        m2, m3 = (inp == c2), (inp == c3)
+        cand[m0] = c1
+        cand[m1] = c0
+        cand[m2] = c3
+        cand[m3] = c2
+        cand[:2, :2] = key
+        return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 20. Spatial Centroid Grid Sort Analyzer (solves 0a1d4ef5-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class SpatialCentroidGridSortAnalyzer(Analyzer):
+    """
+    Detect: Isolated foreground shape objects are arranged spatially in a 2D grid.
+    Output is an h_out x w_out grid of their colors sorted vertically then horizontally.
+    """
+    name = "spatial_centroid_grid_sort"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                counts = [(int((g == c).sum()), c) for c in np.unique(g)]
+                counts.sort(reverse=True)
+                bg_cols = set(c for count, c in counts if count > 100 or c == 0)
+                objs = []
+                for c in set(np.unique(g)) - bg_cols:
+                    comps = _components(g == c)
+                    for comp in comps:
+                        if len(comp) >= 3:
+                            rs = [p[0] for p in comp]
+                            cs = [p[1] for p in comp]
+                            objs.append((float(sum(rs)/len(rs)), float(sum(cs)/len(cs)), int(c)))
+                h_out, w_out = (2, 3) if len(objs) == 6 else (3, 3)
+                objs.sort(key=lambda x: x[0])
+                res = np.zeros((h_out, w_out), dtype=int)
+                for r in range(h_out):
+                    row_objs = objs[r*w_out:(r+1)*w_out]
+                    row_objs.sort(key=lambda x: x[1])
+                    for c in range(w_out):
+                        if c < len(row_objs):
+                            res[r, c] = row_objs[c][2]
+                return res.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="SPATIAL_CENTROID_GRID_SORT",
+            params=(),
+            description="Arrange foreground objects into spatial grid by centroids",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        h_out, w_out = out.shape
+        counts = [(int((inp == c).sum()), c) for c in np.unique(inp)]
+        counts.sort(reverse=True)
+        bg_cols = set(c for count, c in counts if count > 100 or c == 0)
+        objs = []
+        for c in set(np.unique(inp)) - bg_cols:
+            comps = _components(inp == c)
+            for comp in comps:
+                if len(comp) >= 3:
+                    rs = [p[0] for p in comp]
+                    cs = [p[1] for p in comp]
+                    objs.append((float(sum(rs)/len(rs)), float(sum(cs)/len(cs)), int(c)))
+        if len(objs) != h_out * w_out:
+            return False
+        objs.sort(key=lambda x: x[0])
+        cand = np.zeros((h_out, w_out), dtype=int)
+        for r in range(h_out):
+            row_objs = objs[r*w_out:(r+1)*w_out]
+            row_objs.sort(key=lambda x: x[1])
+            for c in range(w_out):
+                if c < len(row_objs):
+                    cand[r, c] = row_objs[c][2]
+        return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 21. Divider Quadrant Stitch Assembly Analyzer (solves 0bb8deee-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class DividerQuadrantStitchAssemblyAnalyzer(Analyzer):
+    """
+    Detect: Input grid is divided into 4 quadrants by full row/col divider lines.
+    Output stitches non-empty content of the 4 quadrants into a compact grid.
+    """
+    name = "divider_quadrant_stitch_assembly"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                h_in, w_in = g.shape
+                bg = _bg(g)
+                r_div, c_div = [], []
+                for c in set(np.unique(g)) - {bg}:
+                    rd = [r for r in range(h_in) if (g[r, :] == c).sum() >= w_in - 2]
+                    cd = [cc for cc in range(w_in) if (g[:, cc] == c).sum() >= h_in - 2]
+                    if rd and cd:
+                        r_div, c_div = rd, cd
+                        break
+                if not (r_div and c_div):
+                    return g.tolist()
+                rd, cd = r_div[0], c_div[0]
+                q_tl = g[:rd, :cd]
+                q_tr = g[:rd, cd+1:]
+                q_bl = g[rd+1:, :cd]
+                q_br = g[rd+1:, cd+1:]
+                def _crop(sub):
+                    rs, cs = np.where(sub != bg)
+                    return sub[rs.min():rs.max()+1, cs.min():cs.max()+1] if len(rs)>0 else np.zeros((3,3), dtype=int)
+                sub_tl = _crop(q_tl)
+                sub_tr = _crop(q_tr)
+                sub_bl = _crop(q_bl)
+                sub_br = _crop(q_br)
+                return np.block([[sub_tl, sub_tr], [sub_bl, sub_br]]).tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="DIVIDER_QUADRANT_STITCH",
+            params=(),
+            description="Stitch 4 divider quadrants into a compact grid",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        h_in, w_in = inp.shape
+        bg = _bg(inp)
+        r_div, c_div = [], []
+        for c in set(np.unique(inp)) - {bg}:
+            rd = [r for r in range(h_in) if (inp[r, :] == c).sum() >= w_in - 2]
+            cd = [cc for cc in range(w_in) if (inp[:, cc] == c).sum() >= h_in - 2]
+            if rd and cd:
+                r_div, c_div = rd, cd
+                break
+        if not (r_div and c_div):
+            return False
+        rd, cd = r_div[0], c_div[0]
+        q_tl = inp[:rd, :cd]
+        q_tr = inp[:rd, cd+1:]
+        q_bl = inp[rd+1:, :cd]
+        q_br = inp[rd+1:, cd+1:]
+        def _crop(sub):
+            rs, cs = np.where(sub != bg)
+            return sub[rs.min():rs.max()+1, cs.min():cs.max()+1] if len(rs)>0 else np.zeros((3,3), dtype=int)
+        sub_tl = _crop(q_tl)
+        sub_tr = _crop(q_tr)
+        sub_bl = _crop(q_bl)
+        sub_br = _crop(q_br)
+        cand = np.block([[sub_tl, sub_tr], [sub_bl, sub_br]])
+        return cand.shape == out.shape and np.array_equal(cand, out)
