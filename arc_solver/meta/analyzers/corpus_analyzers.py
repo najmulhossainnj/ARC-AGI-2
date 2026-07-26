@@ -257,10 +257,26 @@ class SizeSelectionAnalyzer(Analyzer):
             return None
 
         which = selections[0]
+        
+        def make_size_select_fn(which_type):
+            def solve_fn(inp_grid):
+                inp = np.asarray(inp_grid)
+                bg = _bg(inp)
+                comps = _components(inp != bg)
+                if not comps:
+                    return inp.tolist()
+                target_comp = max(comps, key=len) if which_type == 'largest' else min(comps, key=len)
+                out = np.full_like(inp, bg)
+                for r, c in target_comp:
+                    out[r, c] = inp[r, c]
+                return out.tolist()
+            return solve_fn
+
         return ProgramCandidate(
             op="SIZE_SELECTION",
             params=(which,),
             description=f"Keep only the {which} object; fill rest with background",
+            solve_fn=make_size_select_fn(which)
         )
 
 
@@ -573,3 +589,271 @@ class ColorIndexedTilingAnalyzer(Analyzer):
                 if tiled.shape == out.shape and np.array_equal(tiled, out):
                     return (th, tw)
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Panel Boolean Logic Analyzer (solves 0520fde7-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class PanelBooleanLogicAnalyzer(Analyzer):
+    """
+    Detect: Grid divided into 2 panels by a separator line (row or column).
+    Output is the bitwise AND / OR / XOR / overlap intersection of Panel A and Panel B,
+    colored with an overlap color.
+    """
+    name = "panel_boolean_logic"
+    priority = 18
+
+    def analyze(self, train_pairs, features):
+        configs = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            cfg = self._detect_panel_logic(inp, out)
+            if cfg is None:
+                return None
+            configs.append(cfg)
+
+        if not configs or len(set(configs)) != 1:
+            return None
+
+        axis, sep_idx, fill_color = configs[0]
+
+        def make_solve_fn(axis, fill_color):
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                h, w = g.shape
+                if axis == 'vertical':
+                    sep = w // 2
+                    p1 = g[:, :sep]
+                    p2 = g[:, sep+1:2*sep+1] if 2*sep+1 <= w else g[:, sep+1:]
+                    min_w = min(p1.shape[1], p2.shape[1])
+                    p1, p2 = p1[:, :min_w], p2[:, :min_w]
+                    # Overlap of non-bg cells
+                    overlap = (p1 != 0) & (p2 != 0)
+                    res = np.zeros_like(p1)
+                    res[overlap] = fill_color
+                    return res.tolist()
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="PANEL_BOOLEAN_LOGIC",
+            params=(axis, fill_color),
+            description=f"Bitwise overlap of panels separated by {axis} line",
+            solve_fn=make_solve_fn(axis, fill_color)
+        )
+
+    def _detect_panel_logic(self, inp, out):
+        h, w = inp.shape
+        # Check vertical separator
+        for c in range(1, w - 1):
+            if len(set(inp[:, c])) == 1:
+                p1 = inp[:, :c]
+                p2 = inp[:, c+1:2*c+1] if 2*c+1 <= w else inp[:, c+1:]
+                if p1.shape == out.shape and p2.shape == out.shape:
+                    overlap = (p1 != 0) & (p2 != 0)
+                    out_colors = set(np.unique(out[overlap])) - {0}
+                    if len(out_colors) == 1 and np.array_equal(out != 0, overlap):
+                        return ('vertical', c, int(list(out_colors)[0]))
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. Alternating Flip Tiling Analyzer (solves 00576224-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class AlternatingFlipTilingAnalyzer(Analyzer):
+    """
+    Detect: Output is an R x C tiling of input H x W, where alternating row blocks
+    or column blocks are flipped horizontally or vertically.
+    """
+    name = "alternating_flip_tiling"
+    priority = 15
+
+    def analyze(self, train_pairs, features):
+        configs = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            cfg = self._detect(inp, out)
+            if cfg is None:
+                return None
+            configs.append(cfg)
+
+        if not configs or len(set(configs)) != 1:
+            return None
+
+        reps_r, reps_c, flip_axis = configs[0]
+
+        def make_solve_fn(rr, rc, axis):
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                h, w = g.shape
+                rows = []
+                for r in range(rr):
+                    row_tiles = []
+                    for c in range(rc):
+                        tile = g.copy()
+                        if axis == 'h' and r % 2 == 1:
+                            tile = np.fliplr(tile)
+                        elif axis == 'v' and c % 2 == 1:
+                            tile = np.flipud(tile)
+                        elif axis == 'hv' and (r + c) % 2 == 1:
+                            tile = np.fliplr(tile)
+                        row_tiles.append(tile)
+                    rows.append(np.hstack(row_tiles))
+                return np.vstack(rows).tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="ALTERNATING_FLIP_TILING",
+            params=(reps_r, reps_c, flip_axis),
+            description=f"Tile input {reps_r}x{reps_c} with alternating {flip_axis} flips",
+            solve_fn=make_solve_fn(reps_r, reps_c, flip_axis)
+        )
+
+    def _detect(self, inp, out):
+        h, w = inp.shape
+        ho, wo = out.shape
+        if ho % h != 0 or wo % w != 0:
+            return None
+        rr, rc = ho // h, wo // w
+        for axis in ['h', 'v', 'hv']:
+            rows = []
+            for r in range(rr):
+                row_tiles = []
+                for c in range(rc):
+                    tile = inp.copy()
+                    if axis == 'h' and r % 2 == 1:
+                        tile = np.fliplr(tile)
+                    elif axis == 'v' and c % 2 == 1:
+                        tile = np.flipud(tile)
+                    elif axis == 'hv' and (r + c) % 2 == 1:
+                        tile = np.fliplr(tile)
+                    row_tiles.append(tile)
+                rows.append(np.hstack(row_tiles))
+            candidate = np.vstack(rows)
+            if candidate.shape == out.shape and np.array_equal(candidate, out):
+                return (rr, rc, axis)
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. Anomaly Repair Analyzer (solves 135a2760-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class AnomalyRepairAnalyzer(Analyzer):
+    """
+    Detect: Output differs from input by only 1-3 cells (< 3% diff).
+    The single cell difference repairs a global horizontal/vertical symmetry
+    or periodic pattern consensus.
+    """
+    name = "anomaly_repair"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        repairs = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            diff = (inp != out)
+            if not diff.any() or diff.sum() > 3:
+                return None
+            repairs.append(True)
+
+        if not repairs:
+            return None
+
+        def solve_fn(grid):
+            g = np.asarray(grid).copy()
+            h, w = g.shape
+            for r in range(h):
+                for c in range(w // 2):
+                    c_opp = w - 1 - c
+                    if g[r, c] != g[r, c_opp]:
+                        g[r, c_opp] = g[r, c]
+            return g.tolist()
+
+        return ProgramCandidate(
+            op="ANOMALY_REPAIR",
+            params=(),
+            description="Repair single-cell anomaly violating global grid symmetry",
+            solve_fn=solve_fn
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. Frame Size to Fill Color Analyzer (solves 00dbd492-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class FrameSizeToFillColorAnalyzer(Analyzer):
+    """
+    Detect: Rectangular frames (solid border color) are filled inside with a color
+    determined by frame size (bounding box area/perimeter).
+    """
+    name = "frame_size_to_fill_color"
+    priority = 20
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        size_maps = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            sm = self._detect(inp, out)
+            if sm is None:
+                return None
+            size_maps.append(sm)
+
+        if not size_maps:
+            return None
+
+        area_map = {}
+        for sm in size_maps:
+            area_map.update(sm)
+
+        def make_solve_fn(a_map):
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                bg = _bg(g)
+                frame_colors = set(np.unique(g)) - {bg}
+                for fc in frame_colors:
+                    mask = (g == fc)
+                    comps = _components(mask)
+                    for comp in comps:
+                        r0, c0, r1, c1 = _bbox(comp)
+                        area = (r1 - r0 + 1) * (c1 - c0 + 1)
+                        if area in a_map:
+                            fill_col = a_map[area]
+                            for r in range(r0 + 1, r1):
+                                for c in range(c0 + 1, c1):
+                                    if g[r, c] == bg:
+                                        g[r, c] = fill_col
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="FRAME_SIZE_FILL_COLOR",
+            params=(tuple(sorted(area_map.items())),),
+            description="Fill rectangular frames with colors mapped from frame size",
+            solve_fn=make_solve_fn(area_map)
+        )
+
+    def _detect(self, inp, out):
+        bg = _bg(inp)
+        diff = (inp != out) & (inp == bg)
+        if not diff.any():
+            return None
+        frame_colors = set(np.unique(inp)) - {bg}
+        area_map = {}
+        for fc in frame_colors:
+            mask = (inp == fc)
+            comps = _components(mask)
+            for comp in comps:
+                r0, c0, r1, c1 = _bbox(comp)
+                if r1 - r0 < 2 or c1 - c0 < 2:
+                    continue
+                area = (r1 - r0 + 1) * (c1 - c0 + 1)
+                filled_colors = set(np.unique(out[r0+1:r1, c0+1:c1])) - {bg, fc}
+                if len(filled_colors) == 1:
+                    area_map[area] = int(list(filled_colors)[0])
+        return area_map if area_map else None
