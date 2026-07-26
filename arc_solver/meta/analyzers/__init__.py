@@ -40,6 +40,11 @@ from .corpus_analyzers import (
     QuadMirrorSymmetryAnalyzer,
     SequenceDotRayContinuationAnalyzer,
     RayLinePeriodicStrideAnalyzer,
+    ComponentAreaRangeRecolorAnalyzer,
+    SecondaryColorCropAnalyzer,
+    TopLeftKeyRowSwapAnalyzer,
+    SpatialCentroidGridSortAnalyzer,
+    DividerQuadrantStitchAssemblyAnalyzer,
 )
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
@@ -56,6 +61,11 @@ ALL_ANALYZERS = [
     QuadMirrorSymmetryAnalyzer(),        # priority=10  (2Hx2W 4-way quad mirror)
     SequenceDotRayContinuationAnalyzer(),# priority=12  (linear sequence of dots to boundary)
     RayLinePeriodicStrideAnalyzer(),    # priority=15  (periodic line stride from boundary dots)
+    ComponentAreaRangeRecolorAnalyzer(),# priority=10  (recolor component by cell area range)
+    SecondaryColorCropAnalyzer(),       # priority=10  (crop to secondary color bbox)
+    TopLeftKeyRowSwapAnalyzer(),        # priority=10  (swap colors via top-left 2x2 key)
+    SpatialCentroidGridSortAnalyzer(),  # priority=10  (2D centroid grid sort)
+    DividerQuadrantStitchAssemblyAnalyzer(), # priority=10 (stitch 4 divider quadrants)
     AlternatingFlipTilingAnalyzer(),   # priority=15  (alternating flip tile expansion)
     SymmetryCompleteAnalyzer(),         # priority=15  (H/V/HV symmetry repair)
     UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
