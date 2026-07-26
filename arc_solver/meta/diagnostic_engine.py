@@ -188,9 +188,42 @@ class DiagnosticEngine:
                 elapsed=time.time() - t0,
             )
 
-        # ── Phase 2: LLM fallback ─────────────────────────────────────────────
+        # ── Phase 2: Beam Search Synthesis ────────────────────────────────────
+        print(f"\n[Diagnostic] Analyzers failed. Task {task_id} entering Phase 2: Beam Search Synthesis...")
+        try:
+            from ..synthesis.beam_search import BeamSearcher
+            from ..dsl.executor import execute
+            
+            searcher = BeamSearcher(beam_width=20, max_depth=2)
+            found, beam = searcher.search(pairs_np)
+            
+            if found:
+                best_cand = found[0]
+                print(f"  [BeamSearch] Found exact solution: {best_cand.program}")
+                
+                def make_beam_solve(prog):
+                    def solve_fn(grid):
+                        res = execute(prog, grid)
+                        return res.tolist() if hasattr(res, "tolist") else res
+                    return solve_fn
+                
+                return DiagnosisResult(
+                    success=True,
+                    source="beam_search",
+                    solve_fn=make_beam_solve(best_cand.program),
+                    analyzer_name=str(best_cand.program),
+                    elapsed=time.time() - t0,
+                )
+            else:
+                print(f"  [BeamSearch] Beam Search failed to find a 0-error program.")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"  [BeamSearch] Error during search: {e}")
+
+        # ── Phase 3: LLM fallback ─────────────────────────────────────────────
         if not self.use_llm:
-            print(f"[Diagnostic] All analyzers failed; LLM disabled. Task {task_id} -> UNRESOLVED.")
+            print(f"[Diagnostic] All local solvers failed; LLM disabled. Task {task_id} -> UNRESOLVED.")
             return DiagnosisResult(success=False, source="none", elapsed=time.time() - t0)
 
         print(f"\n[Diagnostic] All {len(self.analyzers)} analyzers failed -> Gemini Flash fallback...")
