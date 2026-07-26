@@ -130,21 +130,36 @@ while True:
         source = "original" if solved else "none"
         new_primitive_code = None
 
-        # Step 2: If missed, run Diagnostic Engine (Rule-based + Gemini LLM fallback)
+        # Step 2: If missed, run Diagnostic Engine with RETRY LOOP until solved
+        max_llm_attempts = 10  # Keep trying until solved
+        llm_attempt = 0
         if not solved:
-            try:
-                diagnosis = engine.diagnose(tid, train_pairs, task.test)
-                if diagnosis.success:
-                    solved = True
-                    source = diagnosis.source
-                    if diagnosis.source == "llm" and diagnosis.solve_fn:
-                        new_primitive_code = getattr(diagnosis.solve_fn, "_llm_code", None)
-                        op_name = inject_llm_solve(tid, diagnosis.solve_fn)
-                        prog_str = str(op_name)
-                    elif diagnosis.candidate:
-                        prog_str = str(diagnosis.candidate)
-            except Exception as e:
-                print(f"[{WORKER_ID}] Diagnostic engine notice: {e}")
+            while not solved and llm_attempt < max_llm_attempts:
+                llm_attempt += 1
+                try:
+                    print(f"[{WORKER_ID}] LLM attempt {llm_attempt}/{max_llm_attempts} for task {tid}...")
+                    diagnosis = engine.diagnose(tid, train_pairs, task.test, attempt_num=llm_attempt)
+                    if diagnosis.success:
+                        solved = True
+                        source = diagnosis.source
+                        if diagnosis.source == "llm" and diagnosis.solve_fn:
+                            new_primitive_code = getattr(diagnosis.solve_fn, "_llm_code", None)
+                            op_name = inject_llm_solve(tid, diagnosis.solve_fn)
+                            prog_str = str(op_name)
+                        elif diagnosis.candidate:
+                            prog_str = str(diagnosis.candidate)
+                        print(f"[{WORKER_ID}] SUCCESS on attempt {llm_attempt}!")
+                    else:
+                        # LLM failed, wait and retry with different strategy
+                        wait_time = min(llm_attempt * 5, 30)  # Progressive backoff
+                        print(f"[{WORKER_ID}] LLM failed (attempt {llm_attempt}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                except Exception as e:
+                    print(f"[{WORKER_ID}] Diagnostic engine notice: {e}")
+                    time.sleep(5)
+            
+            if not solved:
+                print(f"[{WORKER_ID}] Gave up on task {tid} after {llm_attempt} LLM attempts.")
 
         # Step 3: Report results to coordinator
         report = {

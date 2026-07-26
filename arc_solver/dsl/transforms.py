@@ -61,4 +61,5 @@ def apply_grid_op(grid,op,args):
     if op=="CYCLE_BLOCK_EXTEND": return adv.cycle_block_extend(g,*args)
     if op=="SHIFT_PARALLELOGRAM": return adv.shift_parallelogram_fix_right(g,*args)
     if op=="DIAGONAL_STACK_CHAIN": return adv.diagonal_stack_chain(g,*args)
+    if op=="LLM_50CB2852": return adv.llm_50cb2852(g,*args)
     raise ValueError(op)

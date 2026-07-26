@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+external_solutions/
+*.egg-info/
+.env
+.venv/
+venv/
+ENV/
+.coverage
+htmlcov/
+dist/
+build/
+*.so
+.DS_Store
