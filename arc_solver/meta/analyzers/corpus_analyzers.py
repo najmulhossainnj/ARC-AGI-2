@@ -1558,25 +1558,20 @@ class SkeletonSolidBlockRecolorAnalyzer(Analyzer):
                 mask = (g == 5)
                 if not mask.any():
                     return g.tolist()
-                block2x2 = np.zeros_like(mask)
+                in_2x2 = np.zeros_like(mask)
                 for r in range(h - 1):
                     for c in range(w - 1):
                         if mask[r:r+2, c:c+2].all():
-                            block2x2[r:r+2, c:c+2] = True
-                ext_mask = mask & (~block2x2)
-                ext_cols = set(np.where(ext_mask)[1])
-                ext_rows = set()
-                for r in range(h):
-                    if (mask[r, :] & ext_mask[r, :]).sum() >= 2:
-                        ext_rows.add(r)
+                            in_2x2[r:r+2, c:c+2] = True
                 res = np.zeros_like(g)
-                for r in range(h):
-                    for c in range(w):
-                        if mask[r, c]:
-                            if c in ext_cols or r in ext_rows or not block2x2[r, c]:
+                res[mask] = 8
+                res[mask & (~in_2x2)] = 2
+                for c in range(w):
+                    if (mask[:, c] & (~in_2x2[:, c])).any():
+                        rs_ext = np.where(mask[:, c] & (~in_2x2[:, c]))[0]
+                        for r in range(h):
+                            if mask[r, c] and abs(r - rs_ext).min() <= 2:
                                 res[r, c] = 2
-                            else:
-                                res[r, c] = 8
                 return res.tolist()
             return solve_fn
 
@@ -1594,25 +1589,20 @@ class SkeletonSolidBlockRecolorAnalyzer(Analyzer):
         mask = (inp == 5)
         if not mask.any():
             return False
-        block2x2 = np.zeros_like(mask)
+        in_2x2 = np.zeros_like(mask)
         for r in range(h - 1):
             for c in range(w - 1):
                 if mask[r:r+2, c:c+2].all():
-                    block2x2[r:r+2, c:c+2] = True
-        ext_mask = mask & (~block2x2)
-        ext_cols = set(np.where(ext_mask)[1])
-        ext_rows = set()
-        for r in range(h):
-            if (mask[r, :] & ext_mask[r, :]).sum() >= 2:
-                ext_rows.add(r)
+                    in_2x2[r:r+2, c:c+2] = True
         cand = np.zeros_like(inp)
-        for r in range(h):
-            for c in range(w):
-                if mask[r, c]:
-                    if c in ext_cols or r in ext_rows or not block2x2[r, c]:
+        cand[mask] = 8
+        cand[mask & (~in_2x2)] = 2
+        for c in range(w):
+            if (mask[:, c] & (~in_2x2[:, c])).any():
+                rs_ext = np.where(mask[:, c] & (~in_2x2[:, c]))[0]
+                for r in range(h):
+                    if mask[r, c] and abs(r - rs_ext).min() <= 2:
                         cand[r, c] = 2
-                    else:
-                        cand[r, c] = 8
         return np.array_equal(cand, out)
 
 
@@ -1647,13 +1637,10 @@ class SeedDiagonalRayProjectionAnalyzer(Analyzer):
                         rs, cs = np.where(lbl == comp_id)
                         r0, r1 = rs.min(), rs.max()
                         c0, c1 = cs.min(), cs.max()
-                        dr, dc = 1, 1
-                        if r0 < h // 2 and c0 > w // 2: dr, dc = 1, -1
-                        elif r0 > h // 2 and c0 < w // 2: dr, dc = -1, 1
-                        elif r0 > h // 2 and c0 > w // 2: dr, dc = -1, -1
-                        elif c1 - c0 > r1 - r0: dr, dc = (1, 1) if r0 < h // 2 else (-1, 1)
-                        elif r1 - r0 > c1 - c0: dr, dc = (1, 1) if c0 < w // 2 else (1, -1)
-                        cr, cc = (r1 if dr > 0 else r0) + dr, (c1 if dc > 0 else c0) + dc
+                        dr = 1 if r0 < h // 2 else -1
+                        dc = 1 if c0 < w // 2 else -1
+                        cr = (r1 if dr > 0 else r0) + dr
+                        cc = (c1 if dc > 0 else c0) + dc
                         while 0 <= cr < h and 0 <= cc < w:
                             if g[cr, cc] == 0:
                                 g[cr, cc] = int(c)
@@ -1682,13 +1669,10 @@ class SeedDiagonalRayProjectionAnalyzer(Analyzer):
                 rs, cs = np.where(lbl == comp_id)
                 r0, r1 = rs.min(), rs.max()
                 c0, c1 = cs.min(), cs.max()
-                dr, dc = 1, 1
-                if r0 < h // 2 and c0 > w // 2: dr, dc = 1, -1
-                elif r0 > h // 2 and c0 < w // 2: dr, dc = -1, 1
-                elif r0 > h // 2 and c0 > w // 2: dr, dc = -1, -1
-                elif c1 - c0 > r1 - r0: dr, dc = (1, 1) if r0 < h // 2 else (-1, 1)
-                elif r1 - r0 > c1 - c0: dr, dc = (1, 1) if c0 < w // 2 else (1, -1)
-                cr, cc = (r1 if dr > 0 else r0) + dr, (c1 if dc > 0 else c0) + dc
+                dr = 1 if r0 < h // 2 else -1
+                dc = 1 if c0 < w // 2 else -1
+                cr = (r1 if dr > 0 else r0) + dr
+                cc = (c1 if dc > 0 else c0) + dc
                 while 0 <= cr < h and 0 <= cc < w:
                     if cand[cr, cc] == 0:
                         cand[cr, cc] = int(c)
