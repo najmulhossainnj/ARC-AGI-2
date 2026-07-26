@@ -32,6 +32,10 @@ from .corpus_analyzers import (
     DiagonalPatternAnalyzer,
     UniqueObjectExtractorAnalyzer,
     ColorIndexedTilingAnalyzer,
+    PanelBooleanLogicAnalyzer,
+    AlternatingFlipTilingAnalyzer,
+    AnomalyRepairAnalyzer,
+    FrameSizeToFillColorAnalyzer,
 )
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
@@ -41,13 +45,17 @@ ALL_ANALYZERS = [
     PatternAnalyzerWrapper(),           # priority=1   (periodic pattern, very fast)
     ColorSubstitutionAnalyzer(),        # priority=5   (1-to-1 color remap)
     SizeSelectionAnalyzer(),            # priority=8   (keep largest/smallest)
+    AnomalyRepairAnalyzer(),            # priority=10  (repair single-cell anomaly)
     TranslationAnalyzer(),              # priority=10  (uniform shift)
     GravityFallAnalyzer(),              # priority=12  (objects fall to edge)
+    AlternatingFlipTilingAnalyzer(),   # priority=15  (alternating flip tile expansion)
     SymmetryCompleteAnalyzer(),         # priority=15  (H/V/HV symmetry repair)
     UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
     ColorIndexedTilingAnalyzer(),       # priority=18  (tile small pattern)
+    PanelBooleanLogicAnalyzer(),        # priority=18  (panel bitwise logic/AND/XOR)
     BlockCycleAnalyzer(),               # priority=18  (vertical block cycling)
     GridSectionLegendAnalyzer(),        # priority=20  (separator → key+puzzle)
+    FrameSizeToFillColorAnalyzer(),     # priority=20  (frame size → fill color)
     ArrowReplicateAnalyzer(),           # priority=20  (arrow-driven replication)
     PatternExtensionAnalyzer(),         # priority=22  (diagonal pattern extension)
     DiagonalPatternAnalyzer(),          # priority=22  ((r+c)%period color bands)
