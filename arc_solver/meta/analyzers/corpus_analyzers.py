@@ -857,3 +857,83 @@ class FrameSizeToFillColorAnalyzer(Analyzer):
                 if len(filled_colors) == 1:
                     area_map[area] = int(list(filled_colors)[0])
         return area_map if area_map else None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. Legend Shape to Color Analyzer (solves 009d5c81-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class LegendShapeToColorAnalyzer(Analyzer):
+    """
+    Detect: A small indicator component of color A has a shape signature S.
+    The main target object of color B gets recolored to target_color,
+    where target_color = map[S].
+    """
+    name = "legend_shape_to_color"
+    priority = 12
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        shape_map = {}
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            res = self._detect(inp, out)
+            if res is None:
+                return None
+            sig, target_col, main_col, ind_col = res
+            shape_map[sig] = (target_col, main_col, ind_col)
+
+        if not shape_map:
+            return None
+
+        def make_solve_fn(s_map):
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                bg = _bg(g)
+                colors = set(np.unique(g)) - {bg}
+                for c in colors:
+                    rs, cs = np.where(g == c)
+                    if len(rs) > 0:
+                        cells = list(zip(rs.tolist(), cs.tolist()))
+                        sig = (len(cells), _norm_shape(cells))
+                        if sig in s_map:
+                            target_col, main_col, ind_col = s_map[sig]
+                            g[g == main_col] = target_col
+                            g[g == ind_col] = bg
+                            return g.tolist()
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="LEGEND_SHAPE_COLOR",
+            params=(),
+            description="Recolor main object based on legend shape signature",
+            solve_fn=make_solve_fn(shape_map)
+        )
+
+    def _detect(self, inp, out):
+        bg = _bg(inp)
+        in_colors = set(np.unique(inp)) - {bg}
+        out_colors = set(np.unique(out)) - {bg}
+        if len(in_colors) < 2 or len(out_colors) != 1:
+            return None
+
+        target_col = int(list(out_colors)[0])
+        main_cols = [int(c) for c in np.unique(inp[out == target_col]) if c != bg]
+        if not main_cols:
+            return None
+        main_col = main_cols[0]
+
+        ind_cols = list(in_colors - {main_col})
+        if not ind_cols:
+            return None
+        ind_col = int(ind_cols[0])
+
+        rs, cs = np.where(inp == ind_col)
+        if len(rs) == 0:
+            return None
+
+        cells = list(zip(rs.tolist(), cs.tolist()))
+        sig = (len(cells), _norm_shape(cells))
+        return (sig, target_col, main_col, ind_col)
