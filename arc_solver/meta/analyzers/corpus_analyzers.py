@@ -937,3 +937,146 @@ class LegendShapeToColorAnalyzer(Analyzer):
         cells = list(zip(rs.tolist(), cs.tolist()))
         sig = (len(cells), _norm_shape(cells))
         return (sig, target_col, main_col, ind_col)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. Quad Mirror Symmetry Analyzer (solves 0c786b71-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class QuadMirrorSymmetryAnalyzer(Analyzer):
+    """
+    Detect: Output grid is a 2H x 2W 4-way quad reflection/mirror expansion
+    of the H x W input grid.
+    """
+    name = "quad_mirror_symmetry"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        configs = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            cfg = self._detect(inp, out)
+            if cfg is None:
+                return None
+            configs.append(cfg)
+
+        if not configs or len(set(configs)) != 1:
+            return None
+
+        mode = configs[0]
+
+        def make_solve_fn(m):
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                tl = np.fliplr(np.flipud(g))
+                tr = np.flipud(g)
+                bl = np.fliplr(g)
+                br = g
+                return np.block([[tl, tr], [bl, br]]).tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="QUAD_MIRROR_SYMMETRY",
+            params=(mode,),
+            description="Expand grid 2Hx2W via 4-way quad mirror reflection",
+            solve_fn=make_solve_fn(mode)
+        )
+
+    def _detect(self, inp, out):
+        h, w = inp.shape
+        ho, wo = out.shape
+        if ho != 2 * h or wo != 2 * w:
+            return None
+        tl = np.fliplr(np.flipud(inp))
+        tr = np.flipud(inp)
+        bl = np.fliplr(inp)
+        br = inp
+        cand = np.block([[tl, tr], [bl, br]])
+        if cand.shape == out.shape and np.array_equal(cand, out):
+            return "quad_4way"
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. Sequence Dot Ray Continuation Analyzer (solves 0b17323b-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class SequenceDotRayContinuationAnalyzer(Analyzer):
+    """
+    Detect: Single-cell dots of color A form an arithmetic progression (linear sequence).
+    The line continues to the grid boundary with color B.
+    """
+    name = "sequence_dot_ray_continuation"
+    priority = 12
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        configs = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            cfg = self._detect(inp, out)
+            if cfg is None:
+                return None
+            configs.append(cfg)
+
+        if not configs or len(set(configs)) != 1:
+            return None
+
+        in_col, out_col = configs[0]
+
+        def make_solve_fn(ic, oc):
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                r1, c1 = np.where(g == ic)
+                if len(r1) < 2:
+                    return g.tolist()
+                pts = sorted(zip(r1.tolist(), c1.tolist()))
+                dr = pts[1][0] - pts[0][0]
+                dc = pts[1][1] - pts[0][1]
+                cr, cc = pts[-1][0] + dr, pts[-1][1] + dc
+                while 0 <= cr < h and 0 <= cc < w:
+                    g[cr, cc] = oc
+                    cr += dr
+                    cc += dc
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="SEQUENCE_DOT_RAY_CONTINUE",
+            params=(in_col, out_col),
+            description="Continue linear sequence of dots to grid boundary",
+            solve_fn=make_solve_fn(in_col, out_col)
+        )
+
+    def _detect(self, inp, out):
+        bg = _bg(inp)
+        diff = (inp != out)
+        if not diff.any():
+            return None
+        out_diff_cols = set(np.unique(out[diff])) - {bg}
+        if len(out_diff_cols) != 1:
+            return None
+        out_col = int(list(out_diff_cols)[0])
+        in_cols = set(np.unique(inp)) - {bg}
+        if len(in_cols) != 1:
+            return None
+        in_col = int(list(in_cols)[0])
+
+        r1, c1 = np.where(inp == in_col)
+        if len(r1) < 2:
+            return None
+        pts = sorted(zip(r1.tolist(), c1.tolist()))
+        dr = pts[1][0] - pts[0][0]
+        dc = pts[1][1] - pts[0][1]
+        h, w = inp.shape
+
+        cand = inp.copy()
+        cr, cc = pts[-1][0] + dr, pts[-1][1] + dc
+        while 0 <= cr < h and 0 <= cc < w:
+            cand[cr, cc] = out_col
+            cr += dr
+            cc += dc
+        if cand.shape == out.shape and np.array_equal(cand, out):
+            return (in_col, out_col)
+        return None
