@@ -6,6 +6,20 @@
 
 ---
 
+## ⚠️ CRITICAL COMPETITION & OFFLINE CONSTRAINT
+
+> **IMPORTANT OPERATIONAL PRINCIPLE**:
+> 
+> 1. **No LLM Access During Competition**: The ARC Prize competition evaluation environment is strictly **offline with no internet/API access**. Therefore, **Phase 2 (LLM API Code Generation) WILL NOT be available during competition submission**.
+> 2. **Role of LLMs (Offline Development Tool)**: The LLM subsystem exists **exclusively during offline research & development** to discover solutions for hard tasks, analyze failure modes, and assist in extracting new pattern classes.
+> 3. **Distillation into Standalone Analyzers**: Every transformation rule discovered by the LLM offline is distilled and implemented as a **standalone, deterministic `Analyzer` class (Phase 1)** or **DSL operator (Phase 3)**.
+> 4. **Competition Execution Core**: At competition submission time, the solver operates 100% offline using:
+>    - **Phase 0**: Local Pre-Computed Solution Database (`SolutionLookup`)
+>    - **Phase 1**: Parallel Standalone Rule-Based Analyzers (33+ Rule Families, $<0.05\text{s}$ execution)
+>    - **Phase 3**: Offline Category-Specialized Composable DSL Beam Search (`CategorySpecializedARCSolver`)
+
+---
+
 ## 1. High-Level Architecture Overview
 
 The system processes ARC-AGI task instances through a multi-tiered diagnostic and synthesis pipeline. The design prioritizes **speed, generalization, and zero false-positive rates**:
@@ -26,9 +40,9 @@ The system processes ARC-AGI task instances through a multi-tiered diagnostic an
            ┌─────────────────────────────┼─────────────────────────────┐
            ▼                             ▼                             ▼
    【PHASE 0: Lookup】           【PHASE 1: Analyzers】          【PHASE 2: LLM Fallback】
-   Pre-computed solver         33 Rule-Based Analyzers         Multi-provider Codegen
-   database search             (ThreadPoolExecutor <0.05s)      & Self-Correction Loop
-           │                             │                             │
+   Pre-computed solver         33 Rule-Based Analyzers         (Offline Dev Only:
+   database search             (ThreadPoolExecutor <0.05s)      Distills new rules into
+           │                             │                      Phase 1 Analyzers)
            └─────────────────────────────┼─────────────────────────────┘
                                          │
                               [Verified 100% Match?]
@@ -36,6 +50,7 @@ The system processes ARC-AGI task instances through a multi-tiered diagnostic an
                                    │
                                    └── NO  ──► 【PHASE 3: Beam Search Synthesis】
                                                Category-Specialized DSL Search
+                                               (Fully Offline Compatible)
 ```
 
 ---
@@ -48,7 +63,7 @@ The system processes ARC-AGI task instances through a multi-tiered diagnostic an
 - **Safety**: Uses AST-based code stripping (`gitmonsters_loader.py`) to eliminate unsafe top-level executable code (file-reading loops, test calls) while preserving function definitions.
 - **Verification**: Every retrieved solution is verified against all training pairs before being accepted.
 
-### Phase 1: 33 Parallel Rule-Based Analyzers (`ALL_ANALYZERS`)
+### Phase 1: 33 Parallel Rule-Based Analyzers (`ALL_ANALYZERS`) — *Primary Competition Engine*
 - **Location**: `arc_solver/meta/analyzers/`
 - **Execution**: All 33 analyzers execute concurrently in a `ThreadPoolExecutor` (max 8-12 workers) with a total timeout limit of 10.0 seconds (average execution: **<0.05s per task**).
 - **Output**: Each analyzer evaluates task features and returns a `ProgramCandidate` containing:
@@ -57,11 +72,10 @@ The system processes ARC-AGI task instances through a multi-tiered diagnostic an
   - `solve_fn`: Executable Python transformation function `solve_fn(grid: List[List[int]]) -> List[List[int]]`
 - **Verification**: Candidate predictions are tested against ALL training pairs via `verify_100pct`. If 100% exact match is confirmed, execution stops immediately and returns the prediction.
 
-### Phase 2: LLM Code Generation & Self-Correction Fallback
+### Phase 2: LLM Code Generation & Self-Correction Fallback (*Offline R&D Tool Only*)
 - **Location**: `arc_solver/meta/llm/primitive_codegen.py` & `prompt_builder.py`
-- **Trigger**: Activates if Phase 0 and Phase 1 fail to produce a 100% match.
-- **Mechanism**: Formats task inputs/outputs into structured natural language diagnostic prompts (Phase 0 visual inspection, Phase 1 structural roles, Phase 2 hypothesis, Phase 3 Python `solve()` code).
-- **Self-Correction**: Runs up to 2 code generation attempts. If attempt 1 fails on a training pair, the exact pixel diff is fed back into attempt 2 for targeted refinement.
+- **Purpose**: Offline pattern discovery & development tool. Used during local development to inspect unsolved tasks and generate candidate solvers.
+- **Distillation Workflow**: When an LLM solves a novel task offline, the developer extracts the underlying transformation logic and implements a new standalone `Analyzer` in `corpus_analyzers.py` or `advanced_analyzers.py`, making it permanently available for offline competition execution.
 
 ---
 
@@ -72,12 +86,13 @@ The primary entry point for the entire codebase is `NeuroSymbolicARCSolver`:
 ```python
 from arc_solver.solver.pipeline import NeuroSymbolicARCSolver
 
+# Competition mode (100% offline compatible):
 solver = NeuroSymbolicARCSolver(
     beam_width=50,
     max_depth=3,
     use_diagnostic_engine=True,
     use_solution_lookup=True,
-    use_llm=True
+    use_llm=False  # Disabled for competition / offline submission
 )
 
 # Solve task:
@@ -91,8 +106,8 @@ predictions, programs = solver.solve_task(
 ### Execution Flow inside `solve_task`:
 1. Formats input/output grids into standard NumPy integer arrays (`np.int16`).
 2. Calls `DiagnosticEngine.diagnose(task_id, train_pairs)`.
-3. If Phase 0, Phase 1, or Phase 2 succeeds, applies the verified `solve_fn` or `candidate` to all test inputs and returns predictions immediately.
-4. If Phase 0-2 fail, hands off to Phase 3: `CategorySpecializedARCSolver` for category-guided composable beam search synthesis.
+3. If Phase 0 or Phase 1 succeeds, applies the verified `solve_fn` or `candidate` to all test inputs and returns predictions immediately ($<0.05\text{s}$).
+4. If Phase 0 and 1 fail, hands off to Phase 3: `CategorySpecializedARCSolver` for category-guided composable beam search synthesis (100% offline compatible).
 
 ---
 
@@ -138,24 +153,18 @@ Analyzers are ordered by priority (lower priority number = executes first, highe
 
 ---
 
-## 5. Pattern Extraction & Generalization Workflow
+## 5. Pattern Extraction & Distillation Workflow
 
-When analyzing solved tasks to build new generalizable analyzers, follow this 5-step methodology:
+When extracting patterns from offline LLM solutions or external datasets to expand the competition solver:
 
-1. **Read Docstring & Rule Summary**: Extract the abstract logic sentence:  
-   `"<INPUT STRUCTURE> determines <WHAT CHANGES>, applied via <ALGORITHM>"`
-2. **Identify Input/Output Invariants**:
-   - Check if shapes, dimensions, colors, or object counts are preserved.
-   - Separate background from foreground, templates from indicators.
-3. **Define Generalizable Detector (`_detect`)**:
-   - Avoid hardcoding specific task IDs, grid sizes, or color numbers.
-   - Express structural conditions using NumPy masks, connected components (`_components`), bounding boxes (`_bbox`), and normalized shapes (`_norm_shape`).
-4. **Construct Parameterized `solve_fn`**:
-   - Attach a closure function `solve_fn(grid: List[List[int]]) -> List[List[int]]` to the returned `ProgramCandidate`.
-   - Ensure `solve_fn` accepts ANY grid following the discovered parameterization.
-5. **Register in `ALL_ANALYZERS`**:
-   - Insert into `arc_solver/meta/analyzers/__init__.py` with appropriate priority.
-   - Priority guideline: Fast/specific filters ($5-20$), Structural transforms ($20-30$), Expensive graph/search solvers ($30-40$).
+1. **Offline Discovery**: Run Phase 2 (LLM Codegen) offline on an unsolved task to obtain a working Python `solve(grid)` function.
+2. **Abstract the Core Algorithm**: Identify the underlying invariant (e.g. "recolor main object based on legend indicator shape").
+3. **Build Parameterized Analyzer (`_detect` + `solve_fn`)**:
+   - Write a standalone `Analyzer` subclass in `corpus_analyzers.py` or `advanced_analyzers.py`.
+   - Implement `_detect(inp, out)` to verify the pattern conditions on training pairs.
+   - Return a `ProgramCandidate` containing an executable closure `solve_fn(grid)` that operates purely in Python/NumPy with zero external API dependencies.
+4. **Register in `ALL_ANALYZERS`**: Place the new analyzer into `ALL_ANALYZERS` with an appropriate priority rating.
+5. **Verify Offline Execution**: Test using `run_batch_evaluation.py` with `use_llm=False` to guarantee 100% offline competition readiness.
 
 ---
 
@@ -163,9 +172,10 @@ When analyzing solved tasks to build new generalizable analyzers, follow this 5-
 
 ```
 e:/kaggle/antigravity/
+├── SYSTEM_ARCHITECTURE.md              # Root system reference manual
 ├── arc_solver/
 │   ├── meta/
-│   │   ├── analyzers/                  # 33 Rule-Based Analyzers
+│   │   ├── analyzers/                  # 33 Standalone Rule-Based Analyzers (Offline Core)
 │   │   │   ├── __init__.py             # ALL_ANALYZERS registry (sorted by priority)
 │   │   │   ├── base.py                 # Analyzer & ProgramCandidate dataclass
 │   │   │   ├── corpus_analyzers.py     # 14 high-frequency corpus analyzers
@@ -176,15 +186,15 @@ e:/kaggle/antigravity/
 │   │   │   ├── replication.py          # Arrow-driven template replication
 │   │   │   └── pattern_analyzer_wrapper.py # Periodic pattern wrapper
 │   │   ├── diagnostic_engine.py        # 3-Phase Diagnostic Engine
-│   │   ├── solution_lookup.py          # External solver database lookup
+│   │   ├── solution_lookup.py          # External solver database lookup (Offline)
 │   │   ├── gitmonsters_loader.py       # AST-based safe solver loader
 │   │   ├── hypothesis_tester.py        # 100% exact match verification engine
-│   │   └── llm/                        # Phase 2 LLM Codegen Engine
+│   │   └── llm/                        # Phase 2 LLM Codegen (Offline R&D Only)
 │   │       ├── primitive_codegen.py    # Multi-provider LLM code generator
 │   │       └── prompt_builder.py       # Structured diagnostic prompt builder
 │   ├── solver/
 │   │   ├── pipeline.py                 # Main entry: NeuroSymbolicARCSolver
-│   │   └── specialized_solvers.py     # CategorySpecializedARCSolver (Beam search)
+│   │   └── specialized_solvers.py     # CategorySpecializedARCSolver (Offline Beam search)
 │   ├── dsl/                            # Domain-Specific Language primitives
 │   └── neural/                         # Neural ranker & feature embeddings
 ├── external_solutions/
@@ -200,5 +210,6 @@ e:/kaggle/antigravity/
 ## 7. Verification & Operational Guidelines
 
 - **Zero False-Positive Rule**: Never return a prediction unless `verify_100pct` confirms 100% exact match across all training pairs.
+- **Competition Readiness**: Ensure all newly written analyzers operate strictly in NumPy/Python without network calls (`use_llm=False`).
 - **No Swallowing Errors**: Catch exceptions safely inside individual analyzers so one failing analyzer never crashes the parallel execution pool.
 - **Git Synchronization**: Always commit and push changes to `GitMonsters/ARC-AGI-2` after modifying analyzers or pipeline code.
