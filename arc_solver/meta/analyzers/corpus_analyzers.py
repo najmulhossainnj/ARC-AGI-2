@@ -1080,3 +1080,101 @@ class SequenceDotRayContinuationAnalyzer(Analyzer):
         if cand.shape == out.shape and np.array_equal(cand, out):
             return (in_col, out_col)
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. Ray Line Periodic Stride Analyzer (solves 0a938d79-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class RayLinePeriodicStrideAnalyzer(Analyzer):
+    """
+    Detect: Boundary seed dots emit periodic horizontal or vertical lines
+    with a constant coordinate stride S across the grid.
+    """
+    name = "ray_line_periodic_stride"
+    priority = 15
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        stride_map = {}
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            res = self._detect(inp, out)
+            if res is None:
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid)
+                h, w = g.shape
+                res = np.zeros_like(g)
+                rs, cs = np.where(g != 0)
+                if len(rs) == 0:
+                    return res.tolist()
+                pts = sorted(zip(rs.tolist(), cs.tolist()))
+                if pts[0][1] == 0 or pts[0][1] == w - 1:
+                    r_list = [p[0] for p in pts]
+                    dr = abs(r_list[1] - r_list[0]) if len(r_list) > 1 else 2
+                    step = 2 * dr
+                    for r, c in pts:
+                        v = g[r, c]
+                        curr_r = r
+                        while curr_r < h:
+                            res[curr_r, :] = v
+                            curr_r += step
+                else:
+                    c_list = [p[1] for p in pts]
+                    dc = abs(c_list[1] - c_list[0]) if len(c_list) > 1 else 2
+                    step = 2 * dc
+                    for r, c in pts:
+                        v = g[r, c]
+                        curr_c = c
+                        while curr_c < w:
+                            res[:, curr_c] = v
+                            curr_c += step
+                return res.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="RAY_LINE_PERIODIC_STRIDE",
+            params=(),
+            description="Emit periodic horizontal/vertical lines with constant stride from boundary dots",
+            solve_fn=make_solve_fn()
+        )
+
+    def _detect(self, inp, out):
+        h, w = inp.shape
+        if inp.shape != out.shape:
+            return None
+
+        rs, cs = np.where(inp != 0)
+        if len(rs) == 0:
+            return None
+
+        cand = np.zeros_like(inp)
+
+        for r, c in zip(rs, cs):
+            v = inp[r, c]
+            if c == 0 or c == w - 1:
+                r_out, _ = np.where(out == v)
+                if len(r_out) > 1:
+                    r_sorted = sorted(set(r_out.tolist()))
+                    step = r_sorted[1] - r_sorted[0]
+                    curr_r = r
+                    while curr_r < h:
+                        cand[curr_r, :] = v
+                        curr_r += step
+            elif r == 0 or r == h - 1:
+                _, c_out = np.where(out == v)
+                if len(c_out) > 1:
+                    c_sorted = sorted(set(c_out.tolist()))
+                    step = c_sorted[1] - c_sorted[0]
+                    curr_c = c
+                    while curr_c < w:
+                        cand[:, curr_c] = v
+                        curr_c += step
+
+        if np.array_equal(cand, out):
+            return True
+        return None
