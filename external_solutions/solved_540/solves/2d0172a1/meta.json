@@ -1,0 +1,25 @@
+{
+  "id": "2d0172a1",
+  "name": "Nested curve topology",
+  "dataset": "ARC-AGI-1",
+  "train_count": 4,
+  "train_score": 4,
+  "test_count": 2,
+  "status": "solved",
+  "accuracy": 1.0,
+  "rule_summary": "Nested curves with color mapping based on topological nesting depth and curve orientation",
+  "solver_file": "solves/2d0172a1/solver.py",
+  "published": true,
+  "arc_url": "https://arcprize.org/play?task=2d0172a1",
+  "grid_sizes": [
+    "7x5",
+    "9x11",
+    "9x13",
+    "14x11",
+    "20x16",
+    "20x25",
+    "5x5",
+    "11x12",
+    "25x25"
+  ]
+}
