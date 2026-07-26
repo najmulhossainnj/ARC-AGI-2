@@ -45,6 +45,8 @@ from .corpus_analyzers import (
     TopLeftKeyRowSwapAnalyzer,
     SpatialCentroidGridSortAnalyzer,
     DividerQuadrantStitchAssemblyAnalyzer,
+    SkeletonSolidBlockRecolorAnalyzer,
+    SeedDiagonalRayProjectionAnalyzer,
 )
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
