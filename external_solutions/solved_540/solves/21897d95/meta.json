@@ -1,0 +1,23 @@
+{
+  "id": "21897d95",
+  "name": "Arrow-directed color remapping",
+  "dataset": "ARC-AGI-1",
+  "train_count": 4,
+  "train_score": 4,
+  "test_count": 2,
+  "status": "solved",
+  "accuracy": 1.0,
+  "rule_summary": "T-shaped arrows around a colored grid indicate color swaps; apply swaps to recolor the grid regions",
+  "solver_file": "solves/21897d95/solver.py",
+  "published": true,
+  "arc_url": "https://arcprize.org/play?task=21897d95",
+  "grid_sizes": [
+    "9x14",
+    "10x10",
+    "12x16",
+    "14x9",
+    "16x12",
+    "24x24",
+    "30x30"
+  ]
+}
