@@ -808,3 +808,381 @@ def llm_50cb2852(grid, background=0):
                     g[i, j-1] == g[i, j] and g[i, j+1] == g[i, j]):
                     output[i, j] = 8
     return output
+
+
+def ray_trace(grid, seed_color, paint_color, direction_mode, bounce_walls, bounce_objects, background=0):
+    """
+    Generalized ray tracing engine.
+    direction_mode: 'DIAGONAL', 'ORTHOGONAL', 'ALL_8'
+    """
+    g = as_grid(grid)
+    h, w = g.shape
+    out = g.copy()
+    
+    seeds = np.where(g == seed_color)
+    if len(seeds[0]) == 0:
+        return None
+        
+    directions = []
+    if direction_mode in ('DIAGONAL', 'ALL_8'):
+        directions.extend([(-1,-1), (-1,1), (1,-1), (1,1)])
+    if direction_mode in ('ORTHOGONAL', 'ALL_8'):
+        directions.extend([(-1,0), (1,0), (0,-1), (0,1)])
+        
+    # Find boundary cells of the seed regions to emit rays from
+    emitters = set()
+    for r, c in zip(*seeds):
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < h and 0 <= nc < w and g[nr, nc] != seed_color:
+                emitters.add((r, c, dr, dc))
+                
+    for r, c, dr, dc in emitters:
+        cr, cc = r + dr, c + dc
+        cdr, cdc = dr, dc
+        seen_states = set()
+        
+        while 0 <= cr < h and 0 <= cc < w:
+            state = (cr, cc, cdr, cdc)
+            if state in seen_states:
+                break
+            seen_states.add(state)
+            
+            cell_val = out[cr, cc]
+            if cell_val != background and cell_val != paint_color:
+                if bounce_objects:
+                    cdr *= -1
+                    cdc *= -1
+                    cr += cdr
+                    cc += cdc
+                    continue
+                else:
+                    break
+                    
+            out[cr, cc] = paint_color
+            
+            nr, nc = cr + cdr, cc + cdc
+            bounced = False
+            if bounce_walls:
+                if not (0 <= nr < h):
+                    cdr *= -1
+                    bounced = True
+                if not (0 <= nc < w):
+                    cdc *= -1
+                    bounced = True
+            
+            if bounced:
+                nr, nc = cr + cdr, cc + cdc
+                
+            cr = nr
+            cc = nc
+            
+    return out
+
+
+def tile_2x2_diagonal_mark(grid, mark_color=8, background=0):
+    """Tile input 2x2 and mark 1-step diagonal neighbors of non-background cells with mark_color."""
+    g = as_grid(grid)
+    h, w = g.shape
+    tiled = np.tile(g, (2, 2))
+    out = tiled.copy()
+    dots = np.argwhere(tiled != background)
+    for r, c in dots:
+        for dr, dc in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < 2 * h and 0 <= nc < 2 * w and out[nr, nc] == background:
+                out[nr, nc] = mark_color
+    return out
+
+
+def seed_surround_mark(grid, rules=(), background=0):
+    """Surround specified seed colors with target colors in ORTHOGONAL or DIAGONAL direction."""
+    g = as_grid(grid)
+    h, w = g.shape
+    out = g.copy()
+    for sc, mode, nc in rules:
+        dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)] if mode == "ORTHOGONAL" else [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        for r, c in np.argwhere(g == sc):
+            for dr, dc in dirs:
+                nr, nc_ = r + dr, c + dc
+                if 0 <= nr < h and 0 <= nc_ < w and out[nr, nc_] == background:
+                    out[nr, nc_] = nc
+    return out
+
+
+def indicator_line_object_absorb(grid, background=0):
+    """Connect aligned indicator dots and absorb touched objects into indicator color."""
+    try:
+        from scipy.ndimage import label as _label
+    except ImportError:
+        return None
+    g = as_grid(grid)
+    h, w = g.shape
+    out = g.copy()
+    colors = set(np.unique(g)) - {background}
+    ind_c = None
+    for c in colors:
+        pts = np.argwhere(g == c)
+        if len(pts) >= 2:
+            rs = [p[0] for p in pts]
+            cs = [p[1] for p in pts]
+            if len(set(rs)) < len(rs) or len(set(cs)) < len(cs):
+                ind_c = c
+                break
+    if ind_c is None:
+        return None
+        
+    pts = np.argwhere(g == ind_c)
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            r1, c1 = pts[i]
+            r2, c2 = pts[j]
+            if r1 == r2:
+                for c_ in range(min(c1, c2), max(c1, c2) + 1):
+                    if out[r1, c_] == background:
+                        out[r1, c_] = ind_c
+            if c1 == c2:
+                for r_ in range(min(r1, r2), max(r1, r2) + 1):
+                    if out[r_, c1] == background:
+                        out[r_, c1] = ind_c
+                        
+    target_colors = colors - {ind_c}
+    struct = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=int)
+    for tc in target_colors:
+        lbl, num = _label(g == tc, structure=struct)
+        for obj_id in range(1, num + 1):
+            obj_mask = (lbl == obj_id)
+            touch = False
+            rs, cs = np.where(obj_mask)
+            for r, c in zip(rs, cs):
+                for dr, dc in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < h and 0 <= nc < w and out[nr, nc] == ind_c:
+                        touch = True
+                        break
+                if touch:
+                    break
+            if touch:
+                out[obj_mask] = ind_c
+    return out
+
+
+def l_path_dot_connect(grid, fill_color=5, background=0):
+    """Connect 3 key dots (2, 4, 3) with chained horizontal-first L-paths using fill_color."""
+    g = as_grid(grid)
+    h, w = g.shape
+    out = g.copy()
+    colors = set(np.unique(g)) - {background}
+    if len(colors) != 3:
+        return None
+    p2 = np.argwhere(g == 2)
+    p4 = np.argwhere(g == 4)
+    p3 = np.argwhere(g == 3)
+    if len(p2) != 1 or len(p4) != 1 or len(p3) != 1:
+        return None
+    r2, c2 = p2[0]
+    r4, c4 = p4[0]
+    r3, c3 = p3[0]
+    
+    out[r2, min(c2, c4):max(c2, c4)+1] = np.where(out[r2, min(c2, c4):max(c2, c4)+1] == background, fill_color, out[r2, min(c2, c4):max(c2, c4)+1])
+    out[min(r2, r4):max(r2, r4)+1, c4] = np.where(out[min(r2, r4):max(r2, r4)+1, c4] == background, fill_color, out[min(r2, r4):max(r2, r4)+1, c4])
+    
+    out[r4, min(c4, c3):max(c4, c3)+1] = np.where(out[r4, min(c4, c3):max(c4, c3)+1] == background, fill_color, out[r4, min(c4, c3):max(c4, c3)+1])
+    out[min(r4, r3):max(r4, r3)+1, c3] = np.where(out[min(r4, r3):max(r4, r3)+1, c3] == background, fill_color, out[min(r4, r3):max(r4, r3)+1, c3])
+    
+    return out
+
+
+def seed_row_bands_frame(grid, background=0):
+    """Partition grid by seed row midpoints and draw border frame per band."""
+    g = as_grid(grid)
+    h, w = g.shape
+    seeds = np.argwhere(g != background)
+    if len(seeds) < 2:
+        return None
+    seeds = seeds[np.argsort(seeds[:, 0])]
+    out = np.full_like(g, background)
+    n_seeds = len(seeds)
+    r_starts = [0] * n_seeds
+    r_ends = [h - 1] * n_seeds
+    for i in range(n_seeds - 1):
+        mid = (seeds[i][0] + seeds[i + 1][0]) // 2
+        r_ends[i] = mid
+        r_starts[i + 1] = mid + 1
+    for i in range(n_seeds):
+        r_seed, c_seed = seeds[i]
+        c = g[r_seed, c_seed]
+        rs, re = r_starts[i], r_ends[i]
+        out[rs:re + 1, 0] = c
+        out[rs:re + 1, w - 1] = c
+        out[r_seed, :] = c
+        if i == 0:
+            out[0, :] = c
+        if i == n_seeds - 1:
+            out[h - 1, :] = c
+    return out
+
+
+def legend_rotate_scale_recolor(grid, target_color=8, background=0):
+    """Rotate top legend 270 deg and block-scale recolor target structure."""
+    g = as_grid(grid)
+    h, w = g.shape
+    legend_mask = (g != background) & (g != target_color)
+    if not legend_mask.any():
+        return None
+    l_rs, l_cs = np.where(legend_mask)
+    lr1, lr2 = l_rs.min(), l_rs.max()
+    lc1, lc2 = l_cs.min(), l_cs.max()
+    legend = g[lr1:lr2 + 1, lc1:lc2 + 1]
+    
+    target_mask = (g == target_color)
+    if not target_mask.any():
+        return None
+    rs, cs = np.where(target_mask)
+    r1, r2 = rs.min(), rs.max()
+    c1, c2 = cs.min(), cs.max()
+    gh, gw = r2 - r1 + 1, c2 - c1 + 1
+    
+    legend_rot = np.rot90(legend, 3)
+    lh, lw = legend_rot.shape
+    if gh % lh != 0 or gw % lw != 0:
+        return None
+        
+    scale_h = gh // lh
+    scale_w = gw // lw
+    
+    out = g.copy()
+    for lr in range(lh):
+        for lc in range(lw):
+            color = legend_rot[lr, lc]
+            if color != background:
+                sub_r1 = r1 + lr * scale_h
+                sub_r2 = r1 + (lr + 1) * scale_h
+                sub_c1 = c1 + lc * scale_w
+                sub_c2 = c1 + (lc + 1) * scale_w
+                
+                b_mask = (g[sub_r1:sub_r2, sub_c1:sub_c2] == target_color)
+                out[sub_r1:sub_r2, sub_c1:sub_c2][b_mask] = color
+                
+    return out
+
+
+def quad_symmetry_complete(grid, background=0):
+    """Complete 4-way (horizontal + vertical) symmetry around content center."""
+    g = as_grid(grid)
+    h, w = g.shape
+    pts = np.argwhere(g != background)
+    if len(pts) == 0:
+        return None
+    r_center = (pts[:, 0].min() + pts[:, 0].max()) / 2.0
+    c_center = (pts[:, 1].min() + pts[:, 1].max()) / 2.0
+    out = g.copy()
+    for r, c in pts:
+        color = g[r, c]
+        dr = r - r_center
+        dc = c - c_center
+        for sign_r in [1, -1]:
+            for sign_c in [1, -1]:
+                nr = int(round(r_center + sign_r * dr))
+                nc = int(round(c_center + sign_c * dc))
+                if 0 <= nr < h and 0 <= nc < w:
+                    out[nr, nc] = color
+    return out
+
+
+def template_d4_key_align(grid, background=0):
+    """Align D4-transformed template onto target key dots and keep only matched objects."""
+    try:
+        from scipy.ndimage import label as _label, binary_dilation as _binary_dilation
+    except ImportError:
+        return None
+    g = as_grid(grid)
+    h, w = g.shape
+    struct = np.ones((3, 3), dtype=int)
+    lbl, num = _label(g != background, structure=struct)
+    if num < 2:
+        return None
+
+    comps = []
+    for i in range(1, num + 1):
+        mask = (lbl == i)
+        rs, cs = np.where(mask)
+        r1, r2, c1, c2 = rs.min(), rs.max(), cs.min(), cs.max()
+        crop = g[r1:r2 + 1, c1:c2 + 1].copy()
+        crop[~mask[r1:r2 + 1, c1:c2 + 1]] = background
+        comps.append(crop)
+
+    out = np.full_like(g, background)
+    templates = [c for c in comps if (c != background).sum() >= 4]
+    if not templates:
+        return None
+
+    dots_mask = np.zeros_like(g, dtype=bool)
+    for i in range(1, num + 1):
+        if (lbl == i).sum() < 4:
+            dots_mask |= (lbl == i)
+
+    if not dots_mask.any():
+        return None
+
+    expanded_dots = _binary_dilation(dots_mask, iterations=4)
+    target_lbl, n_t = _label(expanded_dots, structure=struct)
+
+    for t_id in range(1, n_t + 1):
+        t_mask = (target_lbl == t_id) & dots_mask
+        t_dots = np.argwhere(t_mask)
+        if len(t_dots) == 0:
+            continue
+        t_colors = [g[r, c] for r, c in t_dots]
+
+        matched_group = False
+        for tmpl in templates:
+            tmpl_colors = set(tmpl[tmpl != background])
+            if set(t_colors).issubset(tmpl_colors):
+                for k in range(4):
+                    for flip in [False, True]:
+                        t_trans = np.rot90(tmpl, k)
+                        if flip:
+                            t_trans = np.fliplr(t_trans)
+
+                        for dot_idx in range(len(t_dots)):
+                            cdot = t_colors[dot_idx]
+                            dots_in_trans = np.argwhere(t_trans == cdot)
+                            for r_tr, c_tr in dots_in_trans:
+                                r_target, c_target = t_dots[dot_idx]
+                                top_r = r_target - r_tr
+                                top_c = c_target - c_tr
+                                th, tw = t_trans.shape
+
+                                if 0 <= top_r and top_r + th <= h and 0 <= top_c and top_c + tw <= w:
+                                    valid = True
+                                    for r_td, c_td in t_dots:
+                                        rel_r = r_td - top_r
+                                        rel_c = c_td - top_c
+                                        if not (0 <= rel_r < th and 0 <= rel_c < tw and t_trans[rel_r, rel_c] == g[r_td, c_td]):
+                                            valid = False
+                                            break
+                                    if valid:
+                                        out[top_r:top_r + th, top_c:top_c + tw] = np.where(
+                                            t_trans != background, t_trans, out[top_r:top_r + th, top_c:top_c + tw]
+                                        )
+                                        matched_group = True
+                                        break
+                            if matched_group:
+                                break
+                        if matched_group:
+                            break
+                    if matched_group:
+                        break
+                if matched_group:
+                    break
+
+    return out
+
+
+
+
+
+
+
+
