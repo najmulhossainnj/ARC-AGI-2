@@ -3,9 +3,11 @@ import time
 import json
 import numpy as np
 
-sys.path.insert(0, './arc-neurosymbolic-v1')
-from arc_solver.utils.arc_io import load_challenges, load_solutions
+sys.path = [p for p in sys.path if 'arc-neurosymbolic-v1' not in p]
+sys.path.insert(0, '.')
+
 from arc_solver.solver.pipeline import NeuroSymbolicARCSolver
+from arc_solver.utils.arc_io import load_challenges, load_solutions
 
 def run_batch_next_10():
     train_ch = load_challenges('data/arc-prize-2026-arc-agi-2/arc-agi_training_challenges.json')
@@ -46,10 +48,10 @@ def run_batch_next_10():
 
         task = ch_dict[tid]
         truth = sol_dict[tid]
-        train_pairs = [(p.input, p.output) for p in task.train]
-
+        train_pairs = [(p.input if hasattr(p, 'input') else p[0], p.output if hasattr(p, 'output') else p[1]) for p in task.train]
+        test_inputs = [p.input if hasattr(p, 'input') else p[0] for p in task.test]
         t0 = time.time()
-        preds, programs = solver.solve_task(train_pairs, task.test)
+        preds, programs = solver.solve_task(train_pairs, test_inputs, task_id=tid)
         dt = time.time() - t0
         total_time += dt
 
