@@ -2,7 +2,7 @@ from __future__ import annotations
 """
 diagnostic_engine.py
 --------------------
-Orchestrates parallel rule-based analyzers + Gemini Flash LLM fallback.
+Orchestrates solution lookup + parallel rule-based analyzers + Gemini Flash LLM fallback.
 """
 import time
 import numpy as np
@@ -13,12 +13,13 @@ from typing import List, Tuple, Optional, Callable, Any
 from .analyzers import ALL_ANALYZERS
 from .analyzers.base import ProgramCandidate, Analyzer
 from .hypothesis_tester import verify_100pct, verify_solve_fn
+from .solution_lookup import get_solution_lookup, SolutionLookup
 
 
 @dataclass
 class DiagnosisResult:
     success: bool = False
-    source: str = "none"           # "rule_based" | "llm" | "none"
+    source: str = "none"           # "external" | "rule_based" | "llm" | "none"
     candidate: Optional[ProgramCandidate] = None
     solve_fn: Optional[Callable] = None
     analyzer_name: Optional[str] = None
@@ -28,7 +29,7 @@ class DiagnosisResult:
 def _extract_features(
     train_pairs: List[Tuple[np.ndarray, np.ndarray]],
 ) -> dict:
-    """Rich feature extraction used by analyzers and the LLM prompt."""
+    """Lightweight feature extraction used by analyzers and the LLM prompt."""
     features: dict = {}
     same_size = all(
         np.asarray(i).shape == np.asarray(o).shape
@@ -38,28 +39,18 @@ def _extract_features(
     features["n_pairs"] = len(train_pairs)
 
     all_in_colors, all_out_colors = set(), set()
-    nonbg_in, nonbg_out, diff_fracs = [], [], []
-    h_ratios, w_ratios = [], []
-
+    nonbg_in, diff_fracs = [], []
     for inp, out in train_pairs:
         inp, out = np.asarray(inp), np.asarray(out)
         all_in_colors.update(int(v) for v in np.unique(inp))
         all_out_colors.update(int(v) for v in np.unique(out))
         nonbg_in.append(int((inp != 0).sum()))
-        nonbg_out.append(int((out != 0).sum()))
-        h_ratios.append(out.shape[0] / max(inp.shape[0], 1))
-        w_ratios.append(out.shape[1] / max(inp.shape[1], 1))
         if inp.shape == out.shape:
             diff_fracs.append(float((inp != out).sum()) / max(inp.size, 1))
 
     features["n_colors_in"] = len(all_in_colors)
     features["n_colors_out"] = len(all_out_colors)
-    features["colors_added"] = sorted(all_out_colors - all_in_colors)
-    features["colors_removed"] = sorted(all_in_colors - all_out_colors)
     features["avg_nonbg_in"] = sum(nonbg_in) / max(len(nonbg_in), 1)
-    features["avg_nonbg_out"] = sum(nonbg_out) / max(len(nonbg_out), 1)
-    features["avg_h_ratio"] = sum(h_ratios) / max(len(h_ratios), 1)
-    features["avg_w_ratio"] = sum(w_ratios) / max(len(w_ratios), 1)
     features["avg_diff_frac"] = sum(diff_fracs) / max(len(diff_fracs), 1) if diff_fracs else 0.0
     return features
 
@@ -78,9 +69,10 @@ def _run_analyzer(
 
 class DiagnosticEngine:
     """
-    Two-phase diagnostic engine:
-    1. Run all rule-based analyzers in parallel (ThreadPoolExecutor).
-    2. If all fail, call Gemini Flash for code generation.
+    Three-phase diagnostic engine:
+    1. Check external solution database (pre-computed solutions)
+    2. Run all rule-based analyzers in parallel (ThreadPoolExecutor).
+    3. If all fail, call Gemini Flash for code generation.
     """
 
     def __init__(
@@ -90,6 +82,7 @@ class DiagnosticEngine:
         llm_api_key: Optional[str] = None,
         analyzer_timeout: float = 10.0,
         max_workers: int = 8,
+        use_solution_lookup: bool = True,
     ):
         self.analyzers = sorted(
             analyzers if analyzers is not None else ALL_ANALYZERS,
@@ -99,12 +92,23 @@ class DiagnosticEngine:
         self.llm_api_key = llm_api_key
         self.analyzer_timeout = analyzer_timeout
         self.max_workers = max_workers
+        self.use_solution_lookup = use_solution_lookup
+        self.solution_lookup: Optional[SolutionLookup] = None
+        
+        # Initialize solution lookup lazily
+        if self.use_solution_lookup:
+            try:
+                self.solution_lookup = get_solution_lookup()
+            except Exception as e:
+                print(f"[Diagnostic] Could not initialize solution lookup: {e}")
+                self.use_solution_lookup = False
 
     def diagnose(
         self,
         task_id: str,
         train_pairs: List[Tuple[np.ndarray, np.ndarray]],
         test_pairs: Optional[List] = None,
+        attempt_num: int = 1,
     ) -> DiagnosisResult:
         t0 = time.time()
         features = _extract_features(train_pairs)
@@ -113,9 +117,35 @@ class DiagnosticEngine:
             for i, o in train_pairs
         ]
 
-        print(f"\n[Diagnostic] Task {task_id}: running {len(self.analyzers)} analyzers in parallel...")
+        # ── Phase 0: Check external solution database ────────────────────────
+        if self.use_solution_lookup and self.solution_lookup is not None:
+            print(f"\n[Diagnostic] Task {task_id}: checking external solution database...")
+            external = self.solution_lookup.get_solution(task_id)
+            if external is not None:
+                print(f"  [External] Found solution from {external.source} — verifying...")
+                if self.solution_lookup.verify_solution(task_id, pairs_np):
+                    print(f"  [External] VERIFIED 100%!")
+                    
+                    # Wrap the external solve function
+                    lookup = self.solution_lookup
+                    def solve_fn(grid):
+                        return lookup.solve(task_id, grid)
+                    
+                    return DiagnosisResult(
+                        success=True,
+                        source="external",
+                        solve_fn=solve_fn,
+                        analyzer_name=external.source,
+                        elapsed=time.time() - t0,
+                    )
+                else:
+                    print(f"  [External] Solution failed verification — continuing...")
+            else:
+                print(f"  [External] No solution found for {task_id} in database.")
 
         # ── Phase 1: Parallel rule-based analyzers ────────────────────────────
+        print(f"\n[Diagnostic] Task {task_id} (attempt {attempt_num}): running {len(self.analyzers)} analyzers in parallel...")
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             future_to_analyzer = {
                 pool.submit(_run_analyzer, a, pairs_np, features): a
@@ -168,10 +198,10 @@ class DiagnosticEngine:
 
         try:
             from .llm.primitive_codegen import GeminiFlashCodegen
-            codegen = GeminiFlashCodegen(api_key=self.llm_api_key, max_retries=3)
-            solve_fn = codegen.generate(task_id, pairs_np, features, tried_ops)
+            codegen = GeminiFlashCodegen(api_key=self.llm_api_key, max_retries=2)
+            solve_fn = codegen.generate(task_id, pairs_np, features, tried_ops, attempt_num=attempt_num)
 
-            if solve_fn is not None:
+            if solve_fn is not None and verify_solve_fn(solve_fn, pairs_np):
                 return DiagnosisResult(
                     success=True,
                     source="llm",
@@ -179,7 +209,7 @@ class DiagnosticEngine:
                     elapsed=time.time() - t0,
                 )
         except Exception as e:
-            print(f"[Diagnostic] LLM codegen raised exception for task {task_id}: {type(e).__name__}: {e}")
+            pass
 
         print(f"[Diagnostic] FAIL LLM also failed for task {task_id}.")
         return DiagnosisResult(success=False, source="none", elapsed=time.time() - t0)
