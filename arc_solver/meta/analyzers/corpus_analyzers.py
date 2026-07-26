@@ -1679,3 +1679,286 @@ class SeedDiagonalRayProjectionAnalyzer(Analyzer):
                     cr += dr
                     cc += dc
         return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 24. Vertical Line Extension Analyzer (solves 13713586-style)
+# Detects vertical line segments that extend horizontally to form rectangular blocks
+# ─────────────────────────────────────────────────────────────────────────────
+class VerticalLineExtensionAnalyzer(Analyzer):
+    """
+    Detect: Vertical line segments of each color extend horizontally to form
+    rectangular blocks bounded by the horizontal extent of the pattern.
+    """
+    name = "vertical_line_extension"
+    priority = 12
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                bg = _bg(g)
+                colors = [c for c in np.unique(g) if c != bg]
+                
+                for c in colors:
+                    mask = g == c
+                    if not mask.any():
+                        continue
+                    
+                    # Find rows and cols with this color
+                    rows = np.where(np.any(mask, axis=1))[0]
+                    cols = np.where(np.any(mask, axis=0))[0]
+                    
+                    if len(rows) == 0 or len(cols) == 0:
+                        continue
+                    
+                    r_min, r_max = rows.min(), rows.max()
+                    c_min, c_max = cols.min(), cols.max()
+                    
+                    # Check if it's a vertical line (single column range)
+                    if c_max - c_min <= 2:  # Narrow column range = vertical line
+                        # Extend horizontally to the right
+                        # Find the extent of other vertical patterns to determine extension width
+                        ext_width = 0
+                        for c2 in colors:
+                            if c2 != c:
+                                mask2 = g == c2
+                                cols2 = np.where(np.any(mask2, axis=0))[0]
+                                if len(cols2) > 0:
+                                    ext_width = max(ext_width, cols2.max() - c_min)
+                        
+                        if ext_width == 0:
+                            ext_width = c_max - c_min + 4  # Default extension
+                        
+                        # Extend the vertical line
+                        for r in range(r_min, r_max + 1):
+                            for ec in range(c_min, min(c_max + ext_width + 1, w)):
+                                if g[r, ec] == bg:
+                                    g[r, ec] = c
+                
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="VERTICAL_LINE_EXTENSION",
+            params=(),
+            description="Extend vertical line segments horizontally to form rectangular blocks",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        if inp.shape != out.shape:
+            return False
+        cand = inp.copy()
+        h, w = inp.shape
+        bg = _bg(cand)
+        colors = [c for c in np.unique(cand) if c != bg]
+        
+        for c in colors:
+            mask = cand == c
+            if not mask.any():
+                continue
+            
+            rows = np.where(np.any(mask, axis=1))[0]
+            cols = np.where(np.any(mask, axis=0))[0]
+            
+            if len(rows) == 0 or len(cols) == 0:
+                continue
+            
+            r_min, r_max = rows.min(), rows.max()
+            c_min, c_max = cols.min(), cols.max()
+            
+            if c_max - c_min <= 2:  # Vertical line
+                ext_width = 0
+                for c2 in colors:
+                    if c2 != c:
+                        mask2 = cand == c2
+                        cols2 = np.where(np.any(mask2, axis=0))[0]
+                        if len(cols2) > 0:
+                            ext_width = max(ext_width, cols2.max() - c_min)
+                
+                if ext_width == 0:
+                    ext_width = c_max - c_min + 4
+                
+                for r in range(r_min, r_max + 1):
+                    for ec in range(c_min, min(c_max + ext_width + 1, w)):
+                        if cand[r, ec] == bg:
+                            cand[r, ec] = c
+        
+        return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 25. Border Edge Marking Analyzer (solves 13f06aa5-style)
+# Marks the rightmost and bottommost edges with a new color
+# ─────────────────────────────────────────────────────────────────────────────
+class BorderEdgeMarkingAnalyzer(Analyzer):
+    """
+    Detect: The rightmost and bottommost edges of non-background regions
+    are marked with a new color (typically 0 or the smallest available).
+    """
+    name = "border_edge_marking"
+    priority = 12
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                bg = _bg(g)
+                
+                # Find the new color (typically 0 if available, else smallest non-bg)
+                available_colors = set(range(10)) - set(np.unique(g))
+                new_color = 0 if 0 in available_colors else (min(available_colors) if available_colors else 0)
+                
+                # Mark right edge (last column) with new color if it has non-bg content
+                for r in range(h):
+                    if g[r, -1] != bg:
+                        g[r, -1] = new_color
+                
+                # Mark bottom edge (last row) with new color if it has non-bg content
+                for c in range(w):
+                    if g[-1, c] != bg:
+                        g[-1, c] = new_color
+                
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="BORDER_EDGE_MARKING",
+            params=(),
+            description="Mark rightmost and bottommost edges with new color",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        if inp.shape != out.shape:
+            return False
+        
+        cand = inp.copy()
+        h, w = inp.shape
+        bg = _bg(cand)
+        
+        available_colors = set(range(10)) - set(np.unique(cand))
+        new_color = 0 if 0 in available_colors else (min(available_colors) if available_colors else 0)
+        
+        # Mark right edge
+        for r in range(h):
+            if cand[r, -1] != bg:
+                cand[r, -1] = new_color
+        
+        # Mark bottom edge
+        for c in range(w):
+            if cand[-1, c] != bg:
+                cand[-1, c] = new_color
+        
+        return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 26. Cross Center Extraction Analyzer (solves 1190e5a7-style)
+# Extracts the center region between cross pattern bars
+# ─────────────────────────────────────────────────────────────────────────────
+class CrossCenterExtractionAnalyzer(Analyzer):
+    """
+    Detect: Input has a cross pattern with horizontal and vertical bars.
+    Extract the center region between the bars filled with background color.
+    """
+    name = "cross_center_extraction"
+    priority = 15
+
+    def analyze(self, train_pairs, features):
+        # This task changes shape, so we need to handle it specially
+        results = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            result = self._check_pair(inp, out)
+            results.append(result)
+        
+        if not all(results):
+            return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                bg = min(np.unique(g))
+                pattern_color = [c for c in np.unique(g) if c != bg][0] if len(np.unique(g)) > 1 else bg
+                
+                # Find full horizontal pattern rows
+                full_rows = [r for r in range(h) if np.all(g[r, :] == pattern_color)]
+                
+                if len(full_rows) >= 2:
+                    r1, r2 = full_rows[0], full_rows[1]
+                    # Extract region between the rows
+                    subgrid = g[r1+1:r2, :]
+                    
+                    # Find pattern columns in this subgrid
+                    bar_cols = set()
+                    for c in range(w):
+                        if not np.all(subgrid[:, c] == bg):
+                            bar_cols.add(c)
+                    
+                    non_bar_cols = [c for c in range(w) if c not in bar_cols]
+                    
+                    if len(non_bar_cols) >= 3:
+                        # Extract center region
+                        center_start = len(non_bar_cols) // 2 - 1
+                        center_cols = non_bar_cols[center_start:center_start+3]
+                        extracted = subgrid[:, center_cols]
+                        return extracted.tolist()
+                
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="CROSS_CENTER_EXTRACTION",
+            params=(),
+            description="Extract center region between cross pattern bars",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        h, w = inp.shape
+        bg = min(np.unique(inp))
+        pattern_color = [c for c in np.unique(inp) if c != bg][0] if len(np.unique(inp)) > 1 else bg
+        
+        # Find full horizontal pattern rows
+        full_rows = [r for r in range(h) if np.all(inp[r, :] == pattern_color)]
+        
+        if len(full_rows) >= 2:
+            r1, r2 = full_rows[0], full_rows[1]
+            subgrid = inp[r1+1:r2, :]
+            
+            bar_cols = set()
+            for c in range(w):
+                if not np.all(subgrid[:, c] == bg):
+                    bar_cols.add(c)
+            
+            non_bar_cols = [c for c in range(w) if c not in bar_cols]
+            
+            if len(non_bar_cols) >= 3:
+                center_start = len(non_bar_cols) // 2 - 1
+                center_cols = non_bar_cols[center_start:center_start+3]
+                extracted = subgrid[:, center_cols]
+                
+                return extracted.shape == out.shape and np.array_equal(extracted, out)
+        
+        return False

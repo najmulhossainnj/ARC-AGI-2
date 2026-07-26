@@ -47,6 +47,9 @@ from .corpus_analyzers import (
     DividerQuadrantStitchAssemblyAnalyzer,
     SkeletonSolidBlockRecolorAnalyzer,
     SeedDiagonalRayProjectionAnalyzer,
+    VerticalLineExtensionAnalyzer,
+    BorderEdgeMarkingAnalyzer,
+    CrossCenterExtractionAnalyzer,
 )
 
 from .tile_diagonal_mark import TileDiagonalMarkAnalyzer
@@ -97,6 +100,10 @@ ALL_ANALYZERS = [
     PatternExtensionAnalyzer(),         # priority=22  (diagonal pattern extension)
     DiagonalPatternAnalyzer(),          # priority=22  ((r+c)%period color bands)
     MultiEdgeGravityAnalyzer(),         # priority=22  (top/bottom projection)
+    # ── Batch 4 task analyzers ─────────────────────────────────────────────
+    VerticalLineExtensionAnalyzer(),     # priority=12  (extend vertical lines horizontally)
+    BorderEdgeMarkingAnalyzer(),       # priority=12  (mark border edges)
+    CrossCenterExtractionAnalyzer(),    # priority=15  (extract center from cross pattern)
     # ── Mid-priority: structural analyzers ─────────────────────────────────
     NetworkConnectivityFillAnalyzer(),  # priority=25  (dot→chain→frame fill)
     BorderCropAnalyzer(),               # priority=25  (crop to content bbox)
