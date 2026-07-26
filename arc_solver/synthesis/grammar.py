@@ -24,7 +24,7 @@ SOLVER_FAMILIES = {
     "select_recolor","select_crop","object_relocate","object_translate",
     "delete_objects","rank_recolor","rank_resize","objects_to_strip",
     "fractal_tile","fractal_tile_inverse","reflect_tile","recolor_by_indicator","diagonal_pattern_complete",
-    "mirror_4way_quad","extract_unique_color_panel","fill_frame_by_size","cycle_block_extend","shift_parallelogram","diagonal_stack_chain","llm_50cb2852",
+    "mirror_4way_quad","extract_unique_color_panel","fill_frame_by_size","cycle_block_extend","shift_parallelogram","diagonal_stack_chain","ray_trace",
 }
 
 ALL_FAMILIES = COMPOSABLE_FAMILIES | SOLVER_FAMILIES
@@ -186,7 +186,18 @@ def primitive_programs(train_pairs, families=None):
     if "diagonal_stack_chain" in families:
         out.append(Program((Instruction("DIAGONAL_STACK_CHAIN"),)))
 
-    if "llm_50cb2852" in families:
-        out.append(Program((Instruction("LLM_50CB2852"),)))
+    if "ray_trace" in families:
+        colors = set()
+        for a, b in train_pairs:
+            colors.update(map(int, np.unique(a)))
+            colors.update(map(int, np.unique(b)))
+        colors.discard(0)
+        if not colors: colors = {1}
+        for sc in colors:
+            for pc in colors:
+                for dm in ('DIAGONAL', 'ORTHOGONAL'):
+                    for bw in (True, False):
+                        for bo in (True, False):
+                            out.append(Program((Instruction("RAY_TRACE", (sc, pc, dm, bw, bo)),)))
 
     return out
