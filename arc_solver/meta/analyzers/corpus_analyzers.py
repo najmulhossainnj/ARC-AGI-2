@@ -1530,3 +1530,168 @@ class DividerQuadrantStitchAssemblyAnalyzer(Analyzer):
         sub_br = _crop(q_br)
         cand = np.block([[sub_tl, sub_tr], [sub_bl, sub_br]])
         return cand.shape == out.shape and np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 22. Skeleton Solid Block Recolor Analyzer (solves 150deff5-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class SkeletonSolidBlockRecolorAnalyzer(Analyzer):
+    """
+    Detect: Input 5-objects are recolored into 8 (interior 2x2 blocks) and 2 (1-cell extension lines/tails).
+    """
+    name = "skeleton_solid_block_recolor"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                mask = (g == 5)
+                if not mask.any():
+                    return g.tolist()
+                block2x2 = np.zeros_like(mask)
+                for r in range(h - 1):
+                    for c in range(w - 1):
+                        if mask[r:r+2, c:c+2].all():
+                            block2x2[r:r+2, c:c+2] = True
+                ext_mask = mask & (~block2x2)
+                ext_cols = set(np.where(ext_mask)[1])
+                ext_rows = set()
+                for r in range(h):
+                    if (mask[r, :] & ext_mask[r, :]).sum() >= 2:
+                        ext_rows.add(r)
+                res = np.zeros_like(g)
+                for r in range(h):
+                    for c in range(w):
+                        if mask[r, c]:
+                            if c in ext_cols or r in ext_rows or not block2x2[r, c]:
+                                res[r, c] = 2
+                            else:
+                                res[r, c] = 8
+                return res.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="SKELETON_SOLID_BLOCK_RECOLOR",
+            params=(),
+            description="Recolor 2x2 solid blocks to 8 and line extensions to 2",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        if inp.shape != out.shape:
+            return False
+        h, w = inp.shape
+        mask = (inp == 5)
+        if not mask.any():
+            return False
+        block2x2 = np.zeros_like(mask)
+        for r in range(h - 1):
+            for c in range(w - 1):
+                if mask[r:r+2, c:c+2].all():
+                    block2x2[r:r+2, c:c+2] = True
+        ext_mask = mask & (~block2x2)
+        ext_cols = set(np.where(ext_mask)[1])
+        ext_rows = set()
+        for r in range(h):
+            if (mask[r, :] & ext_mask[r, :]).sum() >= 2:
+                ext_rows.add(r)
+        cand = np.zeros_like(inp)
+        for r in range(h):
+            for c in range(w):
+                if mask[r, c]:
+                    if c in ext_cols or r in ext_rows or not block2x2[r, c]:
+                        cand[r, c] = 2
+                    else:
+                        cand[r, c] = 8
+        return np.array_equal(cand, out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 23. Seed Diagonal Ray Projection Analyzer (solves 142ca369-style)
+# ─────────────────────────────────────────────────────────────────────────────
+class SeedDiagonalRayProjectionAnalyzer(Analyzer):
+    """
+    Detect: Input seed shapes of each color project 45-degree diagonal rays across background.
+    """
+    name = "seed_diagonal_ray_projection"
+    priority = 10
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._check_pair(inp, out):
+                return None
+
+        def make_solve_fn():
+            def solve_fn(grid):
+                g = np.asarray(grid).copy()
+                h, w = g.shape
+                colors = set(np.unique(g)) - {0}
+                struct8 = np.ones((3,3), dtype=int)
+                for c in colors:
+                    lbl, num = label(g == c, structure=struct8)
+                    for comp_id in range(1, num + 1):
+                        rs, cs = np.where(lbl == comp_id)
+                        r0, r1 = rs.min(), rs.max()
+                        c0, c1 = cs.min(), cs.max()
+                        dr, dc = 1, 1
+                        if r0 < h // 2 and c0 > w // 2: dr, dc = 1, -1
+                        elif r0 > h // 2 and c0 < w // 2: dr, dc = -1, 1
+                        elif r0 > h // 2 and c0 > w // 2: dr, dc = -1, -1
+                        elif c1 - c0 > r1 - r0: dr, dc = (1, 1) if r0 < h // 2 else (-1, 1)
+                        elif r1 - r0 > c1 - c0: dr, dc = (1, 1) if c0 < w // 2 else (1, -1)
+                        cr, cc = (r1 if dr > 0 else r0) + dr, (c1 if dc > 0 else c0) + dc
+                        while 0 <= cr < h and 0 <= cc < w:
+                            if g[cr, cc] == 0:
+                                g[cr, cc] = int(c)
+                            cr += dr
+                            cc += dc
+                return g.tolist()
+            return solve_fn
+
+        return ProgramCandidate(
+            op="SEED_DIAGONAL_RAY_PROJECTION",
+            params=(),
+            description="Project 45-degree diagonal rays from seed shape tips",
+            solve_fn=make_solve_fn()
+        )
+
+    def _check_pair(self, inp, out):
+        if inp.shape != out.shape:
+            return False
+        cand = inp.copy()
+        h, w = inp.shape
+        colors = set(np.unique(inp)) - {0}
+        struct8 = np.ones((3,3), dtype=int)
+        for c in colors:
+            lbl, num = label(inp == c, structure=struct8)
+            for comp_id in range(1, num + 1):
+                rs, cs = np.where(lbl == comp_id)
+                r0, r1 = rs.min(), rs.max()
+                c0, c1 = cs.min(), cs.max()
+                dr, dc = 1, 1
+                if r0 < h // 2 and c0 > w // 2: dr, dc = 1, -1
+                elif r0 > h // 2 and c0 < w // 2: dr, dc = -1, 1
+                elif r0 > h // 2 and c0 > w // 2: dr, dc = -1, -1
+                elif c1 - c0 > r1 - r0: dr, dc = (1, 1) if r0 < h // 2 else (-1, 1)
+                elif r1 - r0 > c1 - c0: dr, dc = (1, 1) if c0 < w // 2 else (1, -1)
+                cr, cc = (r1 if dr > 0 else r0) + dr, (c1 if dc > 0 else c0) + dc
+                while 0 <= cr < h and 0 <= cc < w:
+                    if cand[cr, cc] == 0:
+                        cand[cr, cc] = int(c)
+                    cr += dr
+                    cc += dc
+        return np.array_equal(cand, out)
