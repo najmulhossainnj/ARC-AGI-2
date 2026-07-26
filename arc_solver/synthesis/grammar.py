@@ -24,7 +24,7 @@ SOLVER_FAMILIES = {
     "select_recolor","select_crop","object_relocate","object_translate",
     "delete_objects","rank_recolor","rank_resize","objects_to_strip",
     "fractal_tile","fractal_tile_inverse","reflect_tile","recolor_by_indicator","diagonal_pattern_complete",
-    "mirror_4way_quad","extract_unique_color_panel","fill_frame_by_size","cycle_block_extend","shift_parallelogram","diagonal_stack_chain",
+    "mirror_4way_quad","extract_unique_color_panel","fill_frame_by_size","cycle_block_extend","shift_parallelogram","diagonal_stack_chain","llm_50cb2852",
 }
 
 ALL_FAMILIES = COMPOSABLE_FAMILIES | SOLVER_FAMILIES
@@ -185,5 +185,8 @@ def primitive_programs(train_pairs, families=None):
 
     if "diagonal_stack_chain" in families:
         out.append(Program((Instruction("DIAGONAL_STACK_CHAIN"),)))
+
+    if "llm_50cb2852" in families:
+        out.append(Program((Instruction("LLM_50CB2852"),)))
 
     return out

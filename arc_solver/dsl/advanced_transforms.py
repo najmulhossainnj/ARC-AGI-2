@@ -789,3 +789,22 @@ def recolor_by_indicator_feature(grid, target_color, indicator_color, feature_ma
     g[g == target_color] = new_c
     g[mask_ind] = background
     return g
+
+
+# LLM-generated primitive for task 50cb2852
+def llm_50cb2852(grid, background=0):
+    """Mark center pixels of solid blocks with color 8.
+    Task 50cb2852: Find pixels that have the same color on all 4 orthogonal neighbors.
+    """
+    g = as_grid(grid).copy()
+    if g.size == 0:
+        return g
+    
+    output = g.copy()
+    for i in range(1, g.shape[0] - 1):
+        for j in range(1, g.shape[1] - 1):
+            if g[i, j] != background:
+                if (g[i-1, j] == g[i, j] and g[i+1, j] == g[i, j] and 
+                    g[i, j-1] == g[i, j] and g[i, j+1] == g[i, j]):
+                    output[i, j] = 8
+    return output

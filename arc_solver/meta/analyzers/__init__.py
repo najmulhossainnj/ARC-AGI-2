@@ -11,8 +11,10 @@ from .misc_analyzers import (
     ParallelogramAlignAnalyzer,
     DiagonalChainAnalyzer,
 )
+from .pattern_analyzer_wrapper import PatternAnalyzerWrapper
 
 ALL_ANALYZERS = [
+    PatternAnalyzerWrapper(),  # High priority - runs first
     ColorSubstitutionAnalyzer(),
     TranslationAnalyzer(),
     SymmetryCompleteAnalyzer(),
@@ -33,4 +35,5 @@ __all__ = [
     "SymmetryCompleteAnalyzer", "GravityFallAnalyzer", "BorderCropAnalyzer",
     "PatternExtensionAnalyzer", "BlockCycleAnalyzer",
     "ParallelogramAlignAnalyzer", "DiagonalChainAnalyzer",
+    "PatternAnalyzerWrapper",
 ]
