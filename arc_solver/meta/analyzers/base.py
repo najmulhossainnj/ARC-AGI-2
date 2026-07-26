@@ -1,15 +1,14 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional, List, Tuple
-import numpy as np
-
+from typing import Any, Optional, List, Tuple, Callable
 
 @dataclass
 class ProgramCandidate:
     op: str
     params: tuple = field(default_factory=tuple)
     description: str = ""
+    solve_fn: Optional[Callable] = None
 
     def to_instruction_args(self):
         return self.params
