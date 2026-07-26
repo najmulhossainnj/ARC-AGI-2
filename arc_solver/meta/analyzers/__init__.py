@@ -49,6 +49,15 @@ from .corpus_analyzers import (
     SeedDiagonalRayProjectionAnalyzer,
 )
 
+from .tile_diagonal_mark import TileDiagonalMarkAnalyzer
+from .seed_surround_rule import SeedSurroundRuleAnalyzer
+from .indicator_line_object_absorb import IndicatorLineObjectAbsorbAnalyzer
+from .l_path_dot_connect import LPathDotConnectAnalyzer
+from .seed_row_bands_frame import SeedRowBandsFrameAnalyzer
+from .legend_rotate_scale_recolor import LegendRotateScaleRecolorAnalyzer
+from .quad_symmetry_complete import QuadSymmetryCompleteAnalyzer
+from .template_d4_key_align import TemplateD4KeyAlignAnalyzer
+
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
 # Priority ordering: lower = faster/cheaper/more specific (runs first)
 ALL_ANALYZERS = [
@@ -56,6 +65,14 @@ ALL_ANALYZERS = [
     PatternAnalyzerWrapper(),           # priority=1   (periodic pattern, very fast)
     ColorSubstitutionAnalyzer(),        # priority=5   (1-to-1 color remap)
     SizeSelectionAnalyzer(),            # priority=8   (keep largest/smallest)
+    SeedSurroundRuleAnalyzer(),         # priority=9   (seed color orthogonal/diagonal surround)
+    QuadSymmetryCompleteAnalyzer(),     # priority=10  (4-way center symmetry completion)
+    TileDiagonalMarkAnalyzer(),         # priority=10  (2x2 tile + diagonal neighbor mark)
+    IndicatorLineObjectAbsorbAnalyzer(),# priority=10  (indicator line connect + object recolor)
+    LPathDotConnectAnalyzer(),          # priority=10  (chained L-path dot connection)
+    LegendRotateScaleRecolorAnalyzer(), # priority=15  (legend 270 deg rotate block scale recolor)
+    TemplateD4KeyAlignAnalyzer(),       # priority=15  (D4 template alignment to key dots)
+    SeedRowBandsFrameAnalyzer(),        # priority=15  (seed row bands frame)
     AnomalyRepairAnalyzer(),            # priority=10  (repair single-cell anomaly)
     TranslationAnalyzer(),              # priority=10  (uniform shift)
     GravityFallAnalyzer(),              # priority=12  (objects fall to edge)
