@@ -39,6 +39,7 @@ from .corpus_analyzers import (
     LegendShapeToColorAnalyzer,
     QuadMirrorSymmetryAnalyzer,
     SequenceDotRayContinuationAnalyzer,
+    RayLinePeriodicStrideAnalyzer,
 )
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
@@ -54,6 +55,7 @@ ALL_ANALYZERS = [
     LegendShapeToColorAnalyzer(),       # priority=12  (legend shape → recolor target)
     QuadMirrorSymmetryAnalyzer(),        # priority=10  (2Hx2W 4-way quad mirror)
     SequenceDotRayContinuationAnalyzer(),# priority=12  (linear sequence of dots to boundary)
+    RayLinePeriodicStrideAnalyzer(),    # priority=15  (periodic line stride from boundary dots)
     AlternatingFlipTilingAnalyzer(),   # priority=15  (alternating flip tile expansion)
     SymmetryCompleteAnalyzer(),         # priority=15  (H/V/HV symmetry repair)
     UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
