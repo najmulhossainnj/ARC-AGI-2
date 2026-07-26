@@ -39,69 +39,92 @@ class SolutionLookup:
     def __init__(self, solutions_dir: Optional[str] = None):
         """
         Initialize the solution lookup.
-        
+
         Args:
             solutions_dir: Path to directory containing external solutions.
-                          If None, uses the default location.
+                          If None, searches standard locations automatically.
         """
-        if solutions_dir is None:
-            # Default to the external_solutions directory
-            solutions_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "external_solutions", "solves"
-            )
-        
-        self.solutions_dir = Path(solutions_dir)
+        # Resolve search paths: prefer explicitly given, then external_solutions/solves,
+        # then the arc_solver/../external_solutions/solves pattern
+        self._search_dirs: List[Path] = []
+
+        if solutions_dir:
+            self._search_dirs.append(Path(solutions_dir))
+        else:
+            base = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            self._search_dirs.append(base / "external_solutions" / "solves")
+            # Also handle running from within arc_solver itself
+            self._search_dirs.append(base.parent / "external_solutions" / "solves")
+
+        # Use first existing dir as primary
+        self.solutions_dir = next(
+            (p for p in self._search_dirs if p.exists()),
+            self._search_dirs[0]
+        )
+
         self._cache: Dict[str, ExternalSolution] = {}
         self._loaded = False
         
     def _load_all_solutions(self) -> None:
-        """Scan and load all available solutions."""
+        """Scan and load all available solutions from all search dirs."""
         if self._loaded:
             return
-        
-        if not self.solutions_dir.exists():
-            print(f"[SolutionLookup] Solutions directory not found: {self.solutions_dir}")
-            return
-        
+
         count = 0
-        for task_dir in self.solutions_dir.iterdir():
-            if not task_dir.is_dir():
+        searched = []
+        for sol_dir in self._search_dirs:
+            if not sol_dir.exists():
+                searched.append(str(sol_dir))
                 continue
-            
-            task_id = task_dir.name
-            solver_path = task_dir / "solver.py"
-            
-            if not solver_path.exists():
-                continue
-            
-            try:
-                solve_fn = self._load_solver(solver_path)
-                if solve_fn is not None:
-                    self._cache[task_id] = ExternalSolution(
-                        task_id=task_id,
-                        solver_path=str(solver_path),
-                        solve_fn=solve_fn,
-                        source="GitMonsters/SOLVED-540"
-                    )
-                    count += 1
-            except Exception as e:
-                pass  # Skip failed loads
-        
+
+            for task_dir in sol_dir.iterdir():
+                if not task_dir.is_dir():
+                    continue
+
+                task_id = task_dir.name
+                if task_id in self._cache:
+                    continue  # Already loaded from a higher-priority dir
+
+                solver_path = task_dir / "solver.py"
+                if not solver_path.exists():
+                    continue
+
+                try:
+                    solve_fn = self._load_solver(solver_path)
+                    if solve_fn is not None:
+                        self._cache[task_id] = ExternalSolution(
+                            task_id=task_id,
+                            solver_path=str(solver_path),
+                            solve_fn=solve_fn,
+                            source="GitMonsters/SOLVED-540"
+                        )
+                        count += 1
+                except Exception:
+                    pass
+
         self._loaded = True
-        print(f"[SolutionLookup] Loaded {count} external solutions from {self.solutions_dir}")
+        print(f"[SolutionLookup] Loaded {count} external solutions "
+              f"(searched: {[str(p) for p in self._search_dirs]})")
     
     def _load_solver(self, solver_path: Path) -> Optional[Callable]:
-        """Load a solver module and extract the solve function."""
+        """Load a solver module safely using GitMonsters loader (strips top-level exec code)."""
+        try:
+            # Use the safe GitMonsters loader that strips file-reading side effects
+            from .gitmonsters_loader import load_gitmonsters_solver
+            return load_gitmonsters_solver(solver_path)
+        except ImportError:
+            pass
+
+        # Fallback: standard importlib (may fail for solvers with top-level file reads)
         try:
             spec = importlib.util.spec_from_file_location("solver", solver_path)
             if spec is None or spec.loader is None:
                 return None
-            
+
             module = importlib.util.module_from_spec(spec)
             sys.modules["external_solver"] = module
             spec.loader.exec_module(module)
-            
+
             if hasattr(module, "solve"):
                 return module.solve
         except Exception:
