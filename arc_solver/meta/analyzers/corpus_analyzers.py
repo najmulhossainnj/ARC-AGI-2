@@ -1,0 +1,575 @@
+"""
+corpus_analyzers.py
+--------------------
+High-priority generalized analyzers derived from frequency analysis of
+632 solved ARC tasks in GitMonsters/SOLVED-540-of-540.
+
+Technique frequency ordering (from analysis):
+  324  pattern_match
+  313  counting
+  286  object_placement
+  284  sort_objects
+  135  grid_sections
+  127  size_comparison
+  126  network_chain
+  115  topology
+   73  diagonal
+   72  tiling
+
+These analyzers target the most frequent UNSOLVED technique families.
+Each one detects a broad class, NOT a task-specific rule.
+"""
+from __future__ import annotations
+import numpy as np
+from typing import List, Tuple, Optional, Dict
+from collections import deque, Counter
+from .base import Analyzer, ProgramCandidate
+
+
+# ── Shared helpers ─────────────────────────────────────────────────────────────
+
+def _bg(grid: np.ndarray) -> int:
+    vals, cnts = np.unique(grid, return_counts=True)
+    return int(vals[cnts.argmax()])
+
+
+def _components(mask: np.ndarray, connectivity: int = 4) -> List[List[Tuple[int, int]]]:
+    h, w = mask.shape
+    visited = np.zeros((h, w), bool)
+    dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    if connectivity == 8:
+        dirs += [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+    comps = []
+    for r in range(h):
+        for c in range(w):
+            if mask[r, c] and not visited[r, c]:
+                comp, q = [], deque([(r, c)])
+                visited[r, c] = True
+                while q:
+                    cr, cc = q.popleft()
+                    comp.append((cr, cc))
+                    for dr, dc in dirs:
+                        nr, nc = cr + dr, cc + dc
+                        if 0 <= nr < h and 0 <= nc < w and mask[nr, nc] and not visited[nr, nc]:
+                            visited[nr, nc] = True
+                            q.append((nr, nc))
+                comps.append(comp)
+    return comps
+
+
+def _bbox(cells):
+    rs, cs = zip(*cells)
+    return min(rs), min(cs), max(rs), max(cs)
+
+
+def _norm_shape(cells):
+    r0, c0 = min(r for r, c in cells), min(c for r, c in cells)
+    return tuple(sorted((r - r0, c - c0) for r, c in cells))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Count-Driven Rule Analyzer  (frequency: 313/632)
+#    Pattern: the number of objects/cells of a specific color DETERMINES the
+#    output — either as a count selector, a repeat count, or a size argument.
+#    Most common form: "output contains N copies" where N = count of something.
+# ─────────────────────────────────────────────────────────────────────────────
+class CountDrivenRuleAnalyzer(Analyzer):
+    """
+    Detect: the count of objects or cells of a specific color in the input
+    controls the output (e.g. N objects → output has N copies, N rows, N color
+    bands, or the Nth object is selected).
+    """
+    name = "count_driven_rule"
+    priority = 38
+
+    def analyze(self, train_pairs, features):
+        counts = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            bg = _bg(inp)
+            comps_in = _components(inp != bg)
+            n_objects = len(comps_in)
+            # Check if output size, or output non-bg count, relates to input object count
+            n_out_cells = int((out != _bg(out)).sum())
+            n_in_cells = int((inp != bg).sum())
+            counts.append((n_objects, n_out_cells, n_in_cells, inp.shape, out.shape))
+
+        if len(counts) < 2:
+            return None
+
+        # Check 1: does output HEIGHT or WIDTH == n_objects across all pairs?
+        n_objs = [c[0] for c in counts]
+        out_hs = [c[3][0] if c[3] != c[4] else None for c in counts]  # height change
+        if len(set(n_objs)) > 1:  # count varies across pairs
+            out_heights = [c[4][0] for c in counts]
+            if n_objs == out_heights:
+                return ProgramCandidate(
+                    op="COUNT_DRIVEN_HEIGHT",
+                    params=(),
+                    description="Output height equals number of input objects",
+                )
+            out_widths = [c[4][1] for c in counts]
+            if n_objs == out_widths:
+                return ProgramCandidate(
+                    op="COUNT_DRIVEN_WIDTH",
+                    params=(),
+                    description="Output width equals number of input objects",
+                )
+
+        # Check 2: single-color isolated count drives something
+        all_pairs_have_count_signal = True
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            bg = _bg(inp)
+            colors = [c for c in np.unique(inp) if c != bg]
+            if len(colors) < 2:
+                all_pairs_have_count_signal = False
+                break
+            # At least one color has exactly 1–5 cells (a "counter" marker)
+            small_color = any(int((inp == c).sum()) <= 5 for c in colors)
+            if not small_color:
+                all_pairs_have_count_signal = False
+                break
+
+        if all_pairs_have_count_signal:
+            return ProgramCandidate(
+                op="COUNT_DRIVEN_RULE",
+                params=(),
+                description="A small isolated marker count drives the transformation rule",
+            )
+
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Sort-by-Attribute Analyzer  (frequency: 284/632)
+#    Pattern: objects are reordered (left-to-right, top-to-bottom) based on
+#    an attribute: size (area), color value, height/width, or row/col position.
+#    Output is the same objects, rearranged.
+# ─────────────────────────────────────────────────────────────────────────────
+class SortByAttributeAnalyzer(Analyzer):
+    """
+    Detect: input contains N objects that are rearranged in the output by some
+    attribute (size, color index, extent). Total cell count preserved.
+    Objects maintain their shapes but change positions.
+    """
+    name = "sort_by_attribute"
+    priority = 26
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        sort_attrs = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            bg_in = _bg(inp)
+            bg_out = _bg(out)
+
+            comps_in = _components(inp != bg_in)
+            comps_out = _components(out != bg_out)
+
+            if len(comps_in) < 2 or len(comps_in) != len(comps_out):
+                return None
+
+            # Check if shapes are preserved (same multiset of normalized shapes)
+            shapes_in = sorted(_norm_shape(c) for c in comps_in)
+            shapes_out = sorted(_norm_shape(c) for c in comps_out)
+            if shapes_in != shapes_out:
+                return None  # Shapes changed, not just rearranged
+
+            # Determine sort attribute from output position order
+            # Sort by size: check if out order corresponds to sorted-by-len of in shapes
+            sizes_in = sorted(len(c) for c in comps_in)
+            sizes_out = [len(c) for c in sorted(comps_out, key=lambda c: min(cc for cc, _ in c))]
+
+            if sizes_out == sizes_in or sizes_out == sizes_in[::-1]:
+                sort_attrs.append('size')
+            else:
+                # Sort by color?
+                cols_in = sorted(int(inp[c[0][0], c[0][1]]) for c in comps_in)
+                cols_out_ordered = [int(out[c[0][0], c[0][1]]) for c in
+                                    sorted(comps_out, key=lambda c: min(cc for cc, _ in c))]
+                if sorted(cols_out_ordered) == cols_in or sorted(cols_out_ordered) == cols_in[::-1]:
+                    sort_attrs.append('color')
+                else:
+                    sort_attrs.append('position')
+
+        if not sort_attrs:
+            return None
+
+        dominant = Counter(sort_attrs).most_common(1)[0][0]
+        return ProgramCandidate(
+            op="SORT_OBJECTS",
+            params=(dominant,),
+            description=f"Sort objects by {dominant} and rearrange in grid",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Size-Based Selection Analyzer  (frequency: 127/632)
+#    Pattern: keep only the largest (or smallest) object. Everything else
+#    becomes background. Very common "filter" operation.
+# ─────────────────────────────────────────────────────────────────────────────
+class SizeSelectionAnalyzer(Analyzer):
+    """
+    Detect: output retains exactly one object (largest or smallest by cell count).
+    All other objects/colors become background. A fundamental "filter" transform.
+    """
+    name = "size_selection"
+    priority = 8  # Fast and specific — run early
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        selections = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            bg_in = _bg(inp)
+            bg_out = _bg(out)
+
+            comps_in = _components(inp != bg_in)
+            comps_out = _components(out != bg_out)
+
+            if len(comps_in) < 2:
+                return None
+            if len(comps_out) != 1:
+                return None
+
+            # The one output component should match input's largest or smallest
+            out_shape = _norm_shape(comps_out[0])
+            sizes = [(len(c), _norm_shape(c)) for c in comps_in]
+
+            largest = max(sizes, key=lambda x: x[0])
+            smallest = min(sizes, key=lambda x: x[0])
+
+            if out_shape == largest[1]:
+                selections.append('largest')
+            elif out_shape == smallest[1]:
+                selections.append('smallest')
+            else:
+                return None  # Doesn't match size selection
+
+        if not selections:
+            return None
+        if len(set(selections)) != 1:
+            return None
+
+        which = selections[0]
+        return ProgramCandidate(
+            op="SIZE_SELECTION",
+            params=(which,),
+            description=f"Keep only the {which} object; fill rest with background",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Topology / Hole-Count Analyzer  (frequency: 115/632)
+#    Pattern: the transformation depends on topological properties of objects:
+#    - Number of holes (enclosed bg regions) inside an object
+#    - Nesting depth (objects inside objects)
+#    - Euler number / genus
+# ─────────────────────────────────────────────────────────────────────────────
+class TopologyHoleAnalyzer(Analyzer):
+    """
+    Detect: the rule depends on how many holes (enclosed background regions) each
+    object contains. Objects are colored/selected/counted based on hole count.
+    """
+    name = "topology_hole"
+    priority = 34
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._topology_signal(inp, out):
+                return None
+
+        return ProgramCandidate(
+            op="TOPOLOGY_HOLE_COUNT",
+            params=(),
+            description="Color or select objects based on their topological hole count",
+        )
+
+    def _count_holes(self, mask: np.ndarray) -> int:
+        """Count enclosed background regions inside a binary mask."""
+        h, w = mask.shape
+        # Flood fill from ALL border bg cells → exterior
+        exterior = np.zeros((h, w), bool)
+        q = deque()
+        for r in range(h):
+            for c in [0, w - 1]:
+                if not mask[r, c] and not exterior[r, c]:
+                    exterior[r, c] = True
+                    q.append((r, c))
+        for c in range(w):
+            for r in [0, h - 1]:
+                if not mask[r, c] and not exterior[r, c]:
+                    exterior[r, c] = True
+                    q.append((r, c))
+        dirs4 = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        while q:
+            r, c = q.popleft()
+            for dr, dc in dirs4:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < h and 0 <= nc < w and not mask[nr, nc] and not exterior[nr, nc]:
+                    exterior[nr, nc] = True
+                    q.append((nr, nc))
+        # Holes = bg cells NOT reachable from border
+        holes_mask = ~mask & ~exterior
+        hole_comps = _components(holes_mask)
+        return len(hole_comps)
+
+    def _topology_signal(self, inp, out) -> bool:
+        bg = _bg(inp)
+        comps = _components(inp != bg)
+        if len(comps) < 2:
+            return False
+        # Check if objects have different hole counts
+        hole_counts = []
+        for comp in comps:
+            r0, c0, r1, c1 = _bbox(comp)
+            sub = (inp[r0:r1+1, c0:c1+1] != bg)
+            holes = self._count_holes(sub)
+            hole_counts.append(holes)
+        # Topology signal: objects have varying hole counts (0,1,2...)
+        if len(set(hole_counts)) > 1:
+            return True
+        # Or: output colors differ per object in input (hole-driven recoloring)
+        out_colors = set(int(out[r, c]) for r, c in comps[0] if int(out[r, c]) != bg)
+        in_colors = set(int(inp[r, c]) for r, c in comps[0])
+        return out_colors != in_colors
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Grid Section / Legend Analyzer  (frequency: 135/632)
+#    Pattern: the grid is divided by separator rows/columns into sections:
+#    - "Key" section: encodes the rule (color→shape, color→direction, etc.)
+#    - "Puzzle" section: the region to transform using the decoded rule
+# ─────────────────────────────────────────────────────────────────────────────
+class GridSectionLegendAnalyzer(Analyzer):
+    """
+    Detect: a separator (row or column of a specific color) divides the grid
+    into a legend/key section and a puzzle section. The key is decoded and
+    applied to the puzzle.
+    """
+    name = "grid_section_legend"
+    priority = 20
+
+    def analyze(self, train_pairs, features):
+        seps_found = []
+        for inp, out in train_pairs:
+            inp = np.asarray(inp)
+            sep = self._find_separator(inp)
+            if sep is None:
+                return None
+            seps_found.append(sep)
+        if not seps_found:
+            return None
+        # Check separator is consistent (same axis, similar position)
+        axes = [s[0] for s in seps_found]
+        if len(set(axes)) != 1:
+            return None
+        return ProgramCandidate(
+            op="GRID_SECTION_LEGEND",
+            params=(axes[0],),
+            description=f"Decode legend from {axes[0]}-separated section; apply rule to puzzle section",
+        )
+
+    def _find_separator(self, grid):
+        h, w = grid.shape
+        # Horizontal separator: row where all cells are one specific non-bg color
+        for r in range(h):
+            row_vals = set(int(v) for v in grid[r, :])
+            if len(row_vals) == 1 and r not in (0, h - 1):
+                return ('horizontal', r, int(grid[r, 0]))
+        # Vertical separator: column where all cells are one specific color
+        for c in range(w):
+            col_vals = set(int(v) for v in grid[:, c])
+            if len(col_vals) == 1 and c not in (0, w - 1):
+                return ('vertical', c, int(grid[0, c]))
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Diagonal Pattern Analyzer  (frequency: 73/632)
+#    Pattern: objects or fills arranged diagonally. The rule propagates along
+#    diagonals: (r+c) % N or (r-c) % N defines color bands or object placement.
+# ─────────────────────────────────────────────────────────────────────────────
+class DiagonalPatternAnalyzer(Analyzer):
+    """
+    Detect: output fills cells where (r+c) % period == k for some color k,
+    or objects are positioned along a diagonal trajectory.
+    """
+    name = "diagonal_pattern"
+    priority = 22
+
+    def analyze(self, train_pairs, features):
+        if not features.get("same_size"):
+            return None
+
+        periods = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            bg = _bg(out)
+            changed = (inp != out)
+            if not changed.any():
+                return None
+            p = self._detect_diagonal_period(out, bg)
+            if p is None:
+                return None
+            periods.append(p)
+
+        if not periods or len(set(periods)) > 2:
+            return None
+
+        return ProgramCandidate(
+            op="DIAGONAL_PATTERN",
+            params=(periods[0],),
+            description=f"Diagonal color bands: (r+c) % {periods[0]} determines color",
+        )
+
+    def _detect_diagonal_period(self, out, bg):
+        h, w = out.shape
+        # Sample non-bg cells and check if (r+c) % p → color is consistent
+        non_bg = [(r, c) for r in range(h) for c in range(w) if out[r, c] != bg]
+        if len(non_bg) < 6:
+            return None
+        for period in range(2, min(h + w, 12)):
+            diag_to_color = {}
+            ok = True
+            for r, c in non_bg[:50]:
+                key = (r + c) % period
+                col = int(out[r, c])
+                if key in diag_to_color and diag_to_color[key] != col:
+                    ok = False
+                    break
+                diag_to_color[key] = col
+            if ok and len(diag_to_color) >= 2:
+                return period
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Unique Object Extractor  (common sub-pattern across many categories)
+#    Pattern: one object in the grid is "unique" in some way (different size,
+#    different shape, different color count, broken symmetry) → it is the answer.
+# ─────────────────────────────────────────────────────────────────────────────
+class UniqueObjectExtractorAnalyzer(Analyzer):
+    """
+    Detect: input has N similar objects + 1 unique/odd-one-out object.
+    The transformation extracts or highlights the unique object.
+    The "unique" criteria: different size, different color, different shape,
+    or one that breaks a rotational/reflective symmetry pattern.
+    """
+    name = "unique_object_extractor"
+    priority = 16
+
+    def analyze(self, train_pairs, features):
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            if not self._detect_unique(inp, out):
+                return None
+        return ProgramCandidate(
+            op="UNIQUE_OBJECT_EXTRACT",
+            params=(),
+            description="Extract the unique/odd-one-out object from a set of similar objects",
+        )
+
+    def _detect_unique(self, inp, out) -> bool:
+        bg_in = _bg(inp)
+        bg_out = _bg(out)
+        comps_in = _components(inp != bg_in)
+        comps_out = _components(out != bg_out)
+
+        if len(comps_in) < 3:
+            return False
+        if len(comps_out) != 1:
+            return False
+
+        # The output component should match one of the input components exactly
+        out_shape = _norm_shape(comps_out[0])
+        in_shapes = [_norm_shape(c) for c in comps_in]
+        if out_shape not in in_shapes:
+            return False
+
+        # Check that other shapes are repeated (the output shape appears only once)
+        count = in_shapes.count(out_shape)
+        others = Counter(s for s in in_shapes if s != out_shape)
+
+        # "Unique" = output shape appears fewer times than the others
+        if count == 1 and len(others) > 0 and max(others.values()) > 1:
+            return True
+
+        # Also check: unique by size
+        sizes = sorted(len(c) for c in comps_in)
+        out_size = len(comps_out[0])
+        size_count = sizes.count(out_size)
+        if size_count == 1 and len(sizes) > 2:
+            # out size is the unique size
+            return True
+
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Color-Indexed Tiling Analyzer  (frequency: 72/632)
+#    Pattern: a small tile pattern (N×M) is repeated across the output grid.
+#    The tile is either: (a) the entire input, (b) a sub-region of input,
+#    or (c) constructed from input colors in a specific arrangement.
+# ─────────────────────────────────────────────────────────────────────────────
+class ColorIndexedTilingAnalyzer(Analyzer):
+    """
+    Detect: output is a tiled (repeated) version of a small pattern extracted
+    from the input. The period/tile-size is consistent across all pairs.
+    """
+    name = "color_indexed_tiling"
+    priority = 18
+
+    def analyze(self, train_pairs, features):
+        tile_sizes = []
+        for inp, out in train_pairs:
+            inp, out = np.asarray(inp), np.asarray(out)
+            ts = self._find_tile(inp, out)
+            if ts is None:
+                return None
+            tile_sizes.append(ts)
+
+        if not tile_sizes:
+            return None
+        if len(set(tile_sizes)) > 2:
+            return None
+
+        th, tw = tile_sizes[0]
+        return ProgramCandidate(
+            op="TILING",
+            params=(th, tw),
+            description=f"Tile a {th}×{tw} pattern extracted from input to fill output",
+        )
+
+    def _find_tile(self, inp, out):
+        h_in, w_in = inp.shape
+        h_out, w_out = out.shape
+        # Output should be larger or equal to input for tiling
+        if h_out < h_in or w_out < w_in:
+            return None
+        # Try: input IS the tile
+        if h_out % h_in == 0 and w_out % w_in == 0:
+            reps_h = h_out // h_in
+            reps_w = w_out // w_in
+            tiled = np.tile(inp, (reps_h, reps_w))
+            if np.array_equal(tiled, out):
+                return (h_in, w_in)
+        # Try various sub-tile sizes
+        for th in range(1, min(h_in + 1, 10)):
+            for tw in range(1, min(w_in + 1, 10)):
+                if h_out % th != 0 or w_out % tw != 0:
+                    continue
+                tile = inp[:th, :tw]
+                tiled = np.tile(tile, (h_out // th, w_out // tw))
+                if tiled.shape == out.shape and np.array_equal(tiled, out):
+                    return (th, tw)
+        return None
