@@ -83,6 +83,16 @@ from .arrow_pointer_claw_recolor import ArrowPointerClawRecolorAnalyzer
 from .dot_polygon_frame_connect import DotPolygonFrameConnectAnalyzer
 from .spine_block_height_recolor import SpineBlockHeightRecolorAnalyzer
 from .lattice_mask_pattern_recolor import LatticeMaskPatternRecolorAnalyzer
+from .dot_color_directional_line_extend import DotColorDirectionalLineExtendAnalyzer
+from .vertical_seed_terminal_anchor_interpolate import VerticalSeedTerminalAnchorInterpolateAnalyzer
+from .hollow_frame_marker_infill import HollowFrameMarkerInfillAnalyzer
+from .subgrid_pattern_to_color_map import SubgridPatternToColorMapAnalyzer
+from .anomaly_swap_recolor import AnomalySwapRecolorAnalyzer
+from .line_compression_joint_recolor import LineCompressionJointRecolorAnalyzer
+from .frame_closure_completion import FrameClosureCompletionAnalyzer
+from .section_shape_color_transfer import SectionShapeColorTransferAnalyzer
+from .landmark_object_shift_align import LandmarkObjectShiftAlignAnalyzer
+from .panel_bitwise_or_overlay import PanelBitwiseOrOverlayAnalyzer
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
 # Priority ordering: lower = faster/cheaper/more specific (runs first)
@@ -107,6 +117,16 @@ ALL_ANALYZERS = [
     LatticeMaskPatternRecolorAnalyzer(),# priority=15  (15113be4: lattice 3x3 mask pattern recolor)
     ArrowPointerClawRecolorAnalyzer(),  # priority=15  (14754a24: arrow/claw pointer recolor)
     SpineBlockHeightRecolorAnalyzer(),  # priority=15  (150deff5: spine line & block height recolor)
+    DotColorDirectionalLineExtendAnalyzer(),             # priority=15 (178fcbfb: extend dots H/V)
+    VerticalSeedTerminalAnchorInterpolateAnalyzer(),     # priority=15 (17b80ad2: interpolate vertical seeds to color 5)
+    HollowFrameMarkerInfillAnalyzer(),                   # priority=15 (17b866bd: hollow frame marker infill)
+    SubgridPatternToColorMapAnalyzer(),                  # priority=15 (17cae0c1: map 3x3 pattern to color)
+    AnomalySwapRecolorAnalyzer(),                        # priority=15 (18286ef8: recolor anomaly & swap 9-5)
+    LineCompressionJointRecolorAnalyzer(),               # priority=15 (182e5d0f: compress 3s & place 5 markers)
+    FrameClosureCompletionAnalyzer(),                    # priority=15 (18419cfa: frame closure completion)
+    SectionShapeColorTransferAnalyzer(),                 # priority=15 (18447a8d: section shape color transfer)
+    LandmarkObjectShiftAlignAnalyzer(),                  # priority=15 (184a9768: landmark object shift align)
+    PanelBitwiseOrOverlayAnalyzer(),                     # priority=15 (195ba7dc: panel bitwise OR overlay)
     LegendShapeToColorAnalyzer(),       # priority=12  (legend shape → recolor target)
     QuadMirrorSymmetryAnalyzer(),        # priority=10  (2Hx2W 4-way quad mirror)
     SequenceDotRayContinuationAnalyzer(),# priority=12  (linear sequence of dots to boundary)
@@ -183,4 +203,14 @@ __all__ = [
     "SectionLegendMaskCombineAnalyzer", "DualGravitySeparateAnalyzer",
     "ArrowPointerClawRecolorAnalyzer", "DotPolygonFrameConnectAnalyzer",
     "SpineBlockHeightRecolorAnalyzer", "LatticeMaskPatternRecolorAnalyzer",
+    "DotColorDirectionalLineExtendAnalyzer",
+    "VerticalSeedTerminalAnchorInterpolateAnalyzer",
+    "HollowFrameMarkerInfillAnalyzer",
+    "SubgridPatternToColorMapAnalyzer",
+    "AnomalySwapRecolorAnalyzer",
+    "LineCompressionJointRecolorAnalyzer",
+    "FrameClosureCompletionAnalyzer",
+    "SectionShapeColorTransferAnalyzer",
+    "LandmarkObjectShiftAlignAnalyzer",
+    "PanelBitwiseOrOverlayAnalyzer",
 ]
