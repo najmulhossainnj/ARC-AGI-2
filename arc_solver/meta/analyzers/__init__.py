@@ -72,6 +72,10 @@ from .segment_extend_to_boundary import SegmentExtendToBoundaryAnalyzer
 from .shape_packing import ShapePackingAnalyzer
 from .tile_gap_fill import TileGapFillAnalyzer
 from .ray_shoot_from_special import RayShootFromSpecialAnalyzer
+from .cross_star_fill import CrossStarFillAnalyzer
+from .frame_corner_extend import FrameCornerExtendAnalyzer
+from .uniform_line_tile_3x3 import UniformLineTile3x3Analyzer
+from .frame_corner_marker import FrameCornerMarkerAnalyzer
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
 # Priority ordering: lower = faster/cheaper/more specific (runs first)
@@ -103,6 +107,10 @@ ALL_ANALYZERS = [
     AlternatingFlipTilingAnalyzer(),   # priority=15  (alternating flip tile expansion)
     SymmetryCompleteAnalyzer(),         # priority=15  (H/V/HV symmetry repair)
     UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
+    CrossStarFillAnalyzer(),            # priority=16  (140c817e: cross-star rays from seed dots)
+    FrameCornerExtendAnalyzer(),        # priority=17  (14b8e18c: corner extensions for hollow frames)
+    UniformLineTile3x3Analyzer(),       # priority=15  (15696249: tile 3x3 along uniform line)
+    FrameCornerMarkerAnalyzer(),        # priority=18  (15663ba9: mark corners/endpoints of frames)
     ColorIndexedTilingAnalyzer(),       # priority=18  (tile small pattern)
     PanelBooleanLogicAnalyzer(),        # priority=18  (panel bitwise logic/AND/XOR)
     BlockCycleAnalyzer(),               # priority=18  (vertical block cycling)
@@ -148,25 +156,14 @@ ALL_ANALYZERS.sort(key=lambda a: a.priority)
 
 __all__ = [
     "Analyzer", "ProgramCandidate", "ALL_ANALYZERS",
-    # Original analyzers
     "ColorSubstitutionAnalyzer", "TranslationAnalyzer", "ArrowReplicateAnalyzer",
     "SymmetryCompleteAnalyzer", "GravityFallAnalyzer", "BorderCropAnalyzer",
     "PatternExtensionAnalyzer", "BlockCycleAnalyzer",
     "ParallelogramAlignAnalyzer", "DiagonalChainAnalyzer",
-    "PatternAnalyzerWrapper",
-    # Analyzers from GitMonsters/13-Impossible analysis
-    "ConcentricRingFillAnalyzer", "LegendRaySlideAnalyzer",
-    "NetworkConnectivityFillAnalyzer", "PuzzleStitchAssemblyAnalyzer",
-    "MultiEdgeGravityAnalyzer", "ObjectStampRuleAnalyzer",
-    "RayCollisionDeflectionAnalyzer", "TArrowMarkerFlowAnalyzer",
-    "MasterTemplateInpaintAnalyzer",
-    # Analyzers from SOLVED-540 corpus frequency analysis
-    "CountDrivenRuleAnalyzer", "SortByAttributeAnalyzer",
-    "SizeSelectionAnalyzer", "TopologyHoleAnalyzer",
-    "GridSectionLegendAnalyzer", "DiagonalPatternAnalyzer",
-    "UniqueObjectExtractorAnalyzer", "ColorIndexedTilingAnalyzer",
+    "PatternAnalyzerWrapper", "CrossStarFillAnalyzer", "FrameCornerExtendAnalyzer",
     "ExtractColorCropAnalyzer", "DotCenterDiagFillAnalyzer",
     "PatternTileDownwardAnalyzer", "ShapeStampByColorAnalyzer",
     "IsolatedToColor3Analyzer", "SegmentExtendToBoundaryAnalyzer",
-    "ShapePackingAnalyzer", "TileGapFillAnalyzer",
+    "ShapePackingAnalyzer", "TileGapFillAnalyzer", "UniformLineTile3x3Analyzer",
+    "FrameCornerMarkerAnalyzer",
 ]
