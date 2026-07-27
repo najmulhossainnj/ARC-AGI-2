@@ -76,6 +76,8 @@ from .cross_star_fill import CrossStarFillAnalyzer
 from .frame_corner_extend import FrameCornerExtendAnalyzer
 from .uniform_line_tile_3x3 import UniformLineTile3x3Analyzer
 from .frame_corner_marker import FrameCornerMarkerAnalyzer
+from .section_legend_mask_combine import SectionLegendMaskCombineAnalyzer
+from .dual_gravity_separate import DualGravitySeparateAnalyzer
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
 # Priority ordering: lower = faster/cheaper/more specific (runs first)
@@ -95,6 +97,7 @@ ALL_ANALYZERS = [
     AnomalyRepairAnalyzer(),            # priority=10  (repair single-cell anomaly)
     TranslationAnalyzer(),              # priority=10  (uniform shift)
     GravityFallAnalyzer(),              # priority=12  (objects fall to edge)
+    DualGravitySeparateAnalyzer(),      # priority=14  (17829a00: dual gravity top/bottom separate)
     LegendShapeToColorAnalyzer(),       # priority=12  (legend shape → recolor target)
     QuadMirrorSymmetryAnalyzer(),        # priority=10  (2Hx2W 4-way quad mirror)
     SequenceDotRayContinuationAnalyzer(),# priority=12  (linear sequence of dots to boundary)
@@ -110,6 +113,7 @@ ALL_ANALYZERS = [
     CrossStarFillAnalyzer(),            # priority=16  (140c817e: cross-star rays from seed dots)
     FrameCornerExtendAnalyzer(),        # priority=17  (14b8e18c: corner extensions for hollow frames)
     UniformLineTile3x3Analyzer(),       # priority=15  (15696249: tile 3x3 along uniform line)
+    SectionLegendMaskCombineAnalyzer(), # priority=15  (15660dd6: mask legend + feature colors)
     FrameCornerMarkerAnalyzer(),        # priority=18  (15663ba9: mark corners/endpoints of frames)
     ColorIndexedTilingAnalyzer(),       # priority=18  (tile small pattern)
     PanelBooleanLogicAnalyzer(),        # priority=18  (panel bitwise logic/AND/XOR)
@@ -165,5 +169,6 @@ __all__ = [
     "PatternTileDownwardAnalyzer", "ShapeStampByColorAnalyzer",
     "IsolatedToColor3Analyzer", "SegmentExtendToBoundaryAnalyzer",
     "ShapePackingAnalyzer", "TileGapFillAnalyzer", "UniformLineTile3x3Analyzer",
-    "FrameCornerMarkerAnalyzer",
+    "FrameCornerMarkerAnalyzer", "SectionLegendMaskCombineAnalyzer",
+    "DualGravitySeparateAnalyzer",
 ]
