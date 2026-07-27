@@ -78,6 +78,10 @@ from .uniform_line_tile_3x3 import UniformLineTile3x3Analyzer
 from .frame_corner_marker import FrameCornerMarkerAnalyzer
 from .section_legend_mask_combine import SectionLegendMaskCombineAnalyzer
 from .dual_gravity_separate import DualGravitySeparateAnalyzer
+from .arrow_pointer_claw_recolor import ArrowPointerClawRecolorAnalyzer
+from .dot_polygon_frame_connect import DotPolygonFrameConnectAnalyzer
+from .spine_block_height_recolor import SpineBlockHeightRecolorAnalyzer
+from .lattice_mask_pattern_recolor import LatticeMaskPatternRecolorAnalyzer
 
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
 # Priority ordering: lower = faster/cheaper/more specific (runs first)
@@ -98,6 +102,10 @@ ALL_ANALYZERS = [
     TranslationAnalyzer(),              # priority=10  (uniform shift)
     GravityFallAnalyzer(),              # priority=12  (objects fall to edge)
     DualGravitySeparateAnalyzer(),      # priority=14  (17829a00: dual gravity top/bottom separate)
+    DotPolygonFrameConnectAnalyzer(),   # priority=15  (1478ab18: connect dots with frame & diags)
+    LatticeMaskPatternRecolorAnalyzer(),# priority=15  (15113be4: lattice 3x3 mask pattern recolor)
+    ArrowPointerClawRecolorAnalyzer(),  # priority=15  (14754a24: arrow/claw pointer recolor)
+    SpineBlockHeightRecolorAnalyzer(),  # priority=15  (150deff5: spine line & block height recolor)
     LegendShapeToColorAnalyzer(),       # priority=12  (legend shape → recolor target)
     QuadMirrorSymmetryAnalyzer(),        # priority=10  (2Hx2W 4-way quad mirror)
     SequenceDotRayContinuationAnalyzer(),# priority=12  (linear sequence of dots to boundary)
@@ -170,5 +178,7 @@ __all__ = [
     "IsolatedToColor3Analyzer", "SegmentExtendToBoundaryAnalyzer",
     "ShapePackingAnalyzer", "TileGapFillAnalyzer", "UniformLineTile3x3Analyzer",
     "FrameCornerMarkerAnalyzer", "SectionLegendMaskCombineAnalyzer",
-    "DualGravitySeparateAnalyzer",
+    "DualGravitySeparateAnalyzer", "ArrowPointerClawRecolorAnalyzer",
+    "DotPolygonFrameConnectAnalyzer", "SpineBlockHeightRecolorAnalyzer",
+    "LatticeMaskPatternRecolorAnalyzer",
 ]
