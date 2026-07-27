@@ -75,6 +75,7 @@ from .ray_shoot_from_special import RayShootFromSpecialAnalyzer
 from .cross_star_fill import CrossStarFillAnalyzer
 from .frame_corner_extend import FrameCornerExtendAnalyzer
 from .uniform_line_tile_3x3 import UniformLineTile3x3Analyzer
+from .uniform_line_tile_nxn import UniformLineTileNxNAnalyzer
 from .frame_corner_marker import FrameCornerMarkerAnalyzer
 from .section_legend_mask_combine import SectionLegendMaskCombineAnalyzer
 from .dual_gravity_separate import DualGravitySeparateAnalyzer
@@ -120,6 +121,7 @@ ALL_ANALYZERS = [
     UniqueObjectExtractorAnalyzer(),    # priority=16  (odd-one-out)
     CrossStarFillAnalyzer(),            # priority=16  (140c817e: cross-star rays from seed dots)
     FrameCornerExtendAnalyzer(),        # priority=17  (14b8e18c: corner extensions for hollow frames)
+    UniformLineTileNxNAnalyzer(),       # priority=15  (15696249: generalized N x M uniform line tile)
     UniformLineTile3x3Analyzer(),       # priority=15  (15696249: tile 3x3 along uniform line)
     SectionLegendMaskCombineAnalyzer(), # priority=15  (15660dd6: mask legend + feature colors)
     FrameCornerMarkerAnalyzer(),        # priority=18  (15663ba9: mark corners/endpoints of frames)
@@ -177,8 +179,8 @@ __all__ = [
     "PatternTileDownwardAnalyzer", "ShapeStampByColorAnalyzer",
     "IsolatedToColor3Analyzer", "SegmentExtendToBoundaryAnalyzer",
     "ShapePackingAnalyzer", "TileGapFillAnalyzer", "UniformLineTile3x3Analyzer",
-    "FrameCornerMarkerAnalyzer", "SectionLegendMaskCombineAnalyzer",
-    "DualGravitySeparateAnalyzer", "ArrowPointerClawRecolorAnalyzer",
-    "DotPolygonFrameConnectAnalyzer", "SpineBlockHeightRecolorAnalyzer",
-    "LatticeMaskPatternRecolorAnalyzer",
+    "UniformLineTileNxNAnalyzer", "FrameCornerMarkerAnalyzer",
+    "SectionLegendMaskCombineAnalyzer", "DualGravitySeparateAnalyzer",
+    "ArrowPointerClawRecolorAnalyzer", "DotPolygonFrameConnectAnalyzer",
+    "SpineBlockHeightRecolorAnalyzer", "LatticeMaskPatternRecolorAnalyzer",
 ]
