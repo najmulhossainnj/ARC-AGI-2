@@ -26,10 +26,14 @@ class DiagnosisResult:
     elapsed: float = 0.0
 
 
+from ..perception.multiview import MultiViewPerception
+from ..concepts.induction import ConceptInductionEngine
+
+
 def _extract_features(
     train_pairs: List[Tuple[np.ndarray, np.ndarray]],
 ) -> dict:
-    """Lightweight feature extraction used by analyzers and the LLM prompt."""
+    """Enhanced feature extraction using MultiViewPerception and ConceptInductionEngine."""
     features: dict = {}
     same_size = all(
         np.asarray(i).shape == np.asarray(o).shape
@@ -52,6 +56,15 @@ def _extract_features(
     features["n_colors_out"] = len(all_out_colors)
     features["avg_nonbg_in"] = sum(nonbg_in) / max(len(nonbg_in), 1)
     features["avg_diff_frac"] = sum(diff_fracs) / max(len(diff_fracs), 1) if diff_fracs else 0.0
+
+    # Multi-View Perception & Concept Induction Features
+    try:
+        features["perception_views"] = [MultiViewPerception.analyze_grid(p[0]) for p in train_pairs]
+        features["inductive_concepts"] = ConceptInductionEngine.induce_concepts(train_pairs)
+    except Exception:
+        features["perception_views"] = []
+        features["inductive_concepts"] = []
+
     return features
 
 
