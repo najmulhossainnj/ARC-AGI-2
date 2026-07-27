@@ -61,6 +61,18 @@ from .legend_rotate_scale_recolor import LegendRotateScaleRecolorAnalyzer
 from .quad_symmetry_complete import QuadSymmetryCompleteAnalyzer
 from .template_d4_key_align import TemplateD4KeyAlignAnalyzer
 
+# Batch 4 analyzers
+from .extract_color_crop import ExtractColorCropAnalyzer
+from .shape_move_to_anchor import ShapeMoveToAnchorAnalyzer
+from .dot_center_diag_fill import DotCenterDiagFillAnalyzer
+from .pattern_tile_downward import PatternTileDownwardAnalyzer
+from .shape_stamp_by_color import ShapeStampByColorAnalyzer
+from .isolated_to_color3 import IsolatedToColor3Analyzer
+from .segment_extend_to_boundary import SegmentExtendToBoundaryAnalyzer
+from .shape_packing import ShapePackingAnalyzer
+from .tile_gap_fill import TileGapFillAnalyzer
+from .ray_shoot_from_special import RayShootFromSpecialAnalyzer
+
 # ── Single canonical ALL_ANALYZERS list ───────────────────────────────────────
 # Priority ordering: lower = faster/cheaper/more specific (runs first)
 ALL_ANALYZERS = [
@@ -101,8 +113,18 @@ ALL_ANALYZERS = [
     DiagonalPatternAnalyzer(),          # priority=22  ((r+c)%period color bands)
     MultiEdgeGravityAnalyzer(),         # priority=22  (top/bottom projection)
     # ── Batch 4 task analyzers ─────────────────────────────────────────────
-    VerticalLineExtensionAnalyzer(),     # priority=12  (extend vertical lines horizontally)
-    BorderEdgeMarkingAnalyzer(),       # priority=12  (mark border edges)
+    ExtractColorCropAnalyzer(),         # priority=18  (1190e5a7: crop to target color bbox)
+    ShapeMoveToAnchorAnalyzer(),        # priority=19  (11dc524f: move shape to touch anchor)
+    DotCenterDiagFillAnalyzer(),        # priority=20  (11e1fe23: diags from dots to center + color 5)
+    PatternTileDownwardAnalyzer(),      # priority=19  (12422b43: tile pattern downward)
+    ShapeStampByColorAnalyzer(),        # priority=18  (12997ef3: stamp template onto each dot color)
+    IsolatedToColor3Analyzer(),         # priority=19  (12eac192: isolated non-anchor cells -> 3)
+    SegmentExtendToBoundaryAnalyzer(),  # priority=18  (13713586: extend segments to boundary)
+    ShapePackingAnalyzer(),             # priority=18  (137eaa0f: pack objects into 3x3 mosaic)
+    TileGapFillAnalyzer(),              # priority=18  (137f0df0: fill tile gaps with 2, outer with 1)
+    RayShootFromSpecialAnalyzer(),      # priority=22  (13f06aa5: rays from special cell to edges)
+    VerticalLineExtensionAnalyzer(),    # priority=12  (extend vertical lines horizontally)
+    BorderEdgeMarkingAnalyzer(),        # priority=12  (mark border edges)
     CrossCenterExtractionAnalyzer(),    # priority=15  (extract center from cross pattern)
     # ── Mid-priority: structural analyzers ─────────────────────────────────
     NetworkConnectivityFillAnalyzer(),  # priority=25  (dot→chain→frame fill)
@@ -143,4 +165,8 @@ __all__ = [
     "SizeSelectionAnalyzer", "TopologyHoleAnalyzer",
     "GridSectionLegendAnalyzer", "DiagonalPatternAnalyzer",
     "UniqueObjectExtractorAnalyzer", "ColorIndexedTilingAnalyzer",
+    "ExtractColorCropAnalyzer", "DotCenterDiagFillAnalyzer",
+    "PatternTileDownwardAnalyzer", "ShapeStampByColorAnalyzer",
+    "IsolatedToColor3Analyzer", "SegmentExtendToBoundaryAnalyzer",
+    "ShapePackingAnalyzer", "TileGapFillAnalyzer",
 ]
