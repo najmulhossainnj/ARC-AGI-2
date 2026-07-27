@@ -28,12 +28,14 @@ class DiagnosisResult:
 
 from ..perception.multiview import MultiViewPerception
 from ..concepts.induction import ConceptInductionEngine
+from ..perception.decomposer import UniversalGridDecomposer
+from ..concepts.spatial_morphology import UniversalSpatialMorphology
 
 
 def _extract_features(
     train_pairs: List[Tuple[np.ndarray, np.ndarray]],
 ) -> dict:
-    """Enhanced feature extraction using MultiViewPerception and ConceptInductionEngine."""
+    """Enhanced feature extraction using MultiViewPerception, ConceptInductionEngine, UniversalGridDecomposer, and UniversalSpatialMorphology."""
     features: dict = {}
     same_size = all(
         np.asarray(i).shape == np.asarray(o).shape
@@ -57,13 +59,18 @@ def _extract_features(
     features["avg_nonbg_in"] = sum(nonbg_in) / max(len(nonbg_in), 1)
     features["avg_diff_frac"] = sum(diff_fracs) / max(len(diff_fracs), 1) if diff_fracs else 0.0
 
-    # Multi-View Perception & Concept Induction Features
+    # Multi-View Perception, Concept Induction, Decomposition & Spatial Morphology Features
     try:
+        decomposer = UniversalGridDecomposer()
         features["perception_views"] = [MultiViewPerception.analyze_grid(p[0]) for p in train_pairs]
         features["inductive_concepts"] = ConceptInductionEngine.induce_concepts(train_pairs)
+        features["grid_decompositions"] = [decomposer.decompose(p[0]) for p in train_pairs]
+        features["spatial_morphology"] = UniversalSpatialMorphology()
     except Exception:
         features["perception_views"] = []
         features["inductive_concepts"] = []
+        features["grid_decompositions"] = []
+        features["spatial_morphology"] = None
 
     return features
 
